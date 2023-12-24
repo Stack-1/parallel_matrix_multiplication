@@ -8,16 +8,6 @@ constexpr int FLOAT_MIN = 0;
 constexpr int FLOAT_MAX = 100;
 
 
-void print_matrix(float **matrix,size_t rows, size_t cols){
-    for(size_t i = 0;i<rows;i++){
-        for(size_t j = 0;j<cols;j++){
-            printf("%f ",matrix[i][j]);
-        }
-        puts("");
-    }
-}
-
-
 float generate_real_number()
 {
     random_device rd;   // non-deterministic generator
