@@ -7,7 +7,14 @@
 #include "utils/stackio.h"
 #include "logger/logger.h"
 
-
+void compute_sequential_matrix_by_matrix_multiplication(float **matrix_A,float **matrix_B,float **matrix_C,size_t rows,size_t cols){
+	for (size_t i=0;i<rows;i++) 
+        for(size_t j=0;j<cols;j++) {
+            for(size_t k=0;k<cols;k++){    
+                matrix_C[i][j]=matrix_C[i][j]+matrix_A[i][k]*matrix_B[k][j];
+			}
+    }
+}
 
 int main(int argc, char *argv[]){
 	size_t rows = 0;
@@ -59,7 +66,7 @@ int main(int argc, char *argv[]){
 	logger_info("Matrix memory correctly allocated on HOST");
 
 
-	//TODO: Get data from file
+	// Getting data from previously generated file
 	read_start = clock();
 	read_matrix_from_file(matrix_A,rows,cols,(char *)"A");
 	read_matrix_from_file(matrix_B,rows,cols,(char *)"B");
@@ -75,7 +82,7 @@ int main(int argc, char *argv[]){
 
 
 
-	logger_info("Matrix values generation correctly on HOST");
+	logger_info("Matrix values acquired correctly on HOST");
 
 	if(cols <= 16 && rows <= 16){
 		puts("Matrix A:");
