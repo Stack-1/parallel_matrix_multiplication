@@ -1,5 +1,0 @@
-/home/sstaccone/project/parallel_matrix_multiplication/cuda/CMakeFiles/rebuild_cache.dir
-/home/sstaccone/project/parallel_matrix_multiplication/cuda/CMakeFiles/edit_cache.dir
-/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/rebuild_cache.dir
-/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/edit_cache.dir
-/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/MatrixbyMatrixMult.dir

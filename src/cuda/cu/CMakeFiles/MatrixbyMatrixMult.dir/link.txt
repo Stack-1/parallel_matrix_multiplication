@@ -1,0 +1,1 @@
+/opt/gnu/11.3.0/bin/g++ -O3 -rdynamic CMakeFiles/MatrixbyMatrixMult.dir/MatrixbyMatrixMult_generated_matrix_multiplication.cu.o -o MatrixbyMatrixMult  /opt/cuda/12.3/lib64/libcudart_static.a -ldl -Wl,-Bstatic -lrt -Wl,-Bdynamic 
