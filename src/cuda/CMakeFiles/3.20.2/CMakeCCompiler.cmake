@@ -1,7 +1,7 @@
-set(CMAKE_C_COMPILER "/opt/gnu/11.3.0/bin/gcc")
+set(CMAKE_C_COMPILER "/usr/bin/cc")
 set(CMAKE_C_COMPILER_ARG1 "")
 set(CMAKE_C_COMPILER_ID "GNU")
-set(CMAKE_C_COMPILER_VERSION "11.3.0")
+set(CMAKE_C_COMPILER_VERSION "11.3.1")
 set(CMAKE_C_COMPILER_VERSION_INTERNAL "")
 set(CMAKE_C_COMPILER_WRAPPER "")
 set(CMAKE_C_STANDARD_COMPUTED_DEFAULT "11")
@@ -19,9 +19,9 @@ set(CMAKE_C_SIMULATE_VERSION "")
 
 
 set(CMAKE_AR "/usr/bin/ar")
-set(CMAKE_C_COMPILER_AR "/opt/gnu/11.3.0/bin/gcc-ar")
+set(CMAKE_C_COMPILER_AR "/usr/bin/gcc-ar")
 set(CMAKE_RANLIB "/usr/bin/ranlib")
-set(CMAKE_C_COMPILER_RANLIB "/opt/gnu/11.3.0/bin/gcc-ranlib")
+set(CMAKE_C_COMPILER_RANLIB "/usr/bin/gcc-ranlib")
 set(CMAKE_LINKER "/usr/bin/ld")
 set(CMAKE_MT "")
 set(CMAKE_COMPILER_IS_GNUCC 1)
@@ -72,7 +72,7 @@ endif()
 
 
 
-set(CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES "/opt/gnu/11.3.0/lib/gcc/x86_64-pc-linux-gnu/11.3.0/include;/usr/local/include;/opt/gnu/11.3.0/include;/opt/gnu/11.3.0/lib/gcc/x86_64-pc-linux-gnu/11.3.0/include-fixed;/usr/include")
+set(CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES "/usr/lib/gcc/x86_64-redhat-linux/11/include;/usr/local/include;/usr/include")
 set(CMAKE_C_IMPLICIT_LINK_LIBRARIES "gcc;gcc_s;c;gcc;gcc_s")
-set(CMAKE_C_IMPLICIT_LINK_DIRECTORIES "/opt/gnu/11.3.0/lib/gcc/x86_64-pc-linux-gnu/11.3.0;/opt/gnu/11.3.0/lib64;/lib64;/usr/lib64;/opt/gnu/11.3.0/lib")
+set(CMAKE_C_IMPLICIT_LINK_DIRECTORIES "/usr/lib/gcc/x86_64-redhat-linux/11;/usr/lib64;/lib64;/usr/lib")
 set(CMAKE_C_IMPLICIT_LINK_FRAMEWORK_DIRECTORIES "")

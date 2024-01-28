@@ -58,18 +58,18 @@ endif()
 
 # Set these up as variables to make reading the generated file easier
 set(CMAKE_COMMAND "/usr/bin/cmake") # path
-set(source_file "/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/matrix_multiplication.cu") # path
-set(NVCC_generated_dependency_file "/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/MatrixbyMatrixMult.dir//MatrixbyMatrixMult_generated_matrix_multiplication.cu.o.NVCC-depend") # path
-set(cmake_dependency_file "/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/MatrixbyMatrixMult.dir//MatrixbyMatrixMult_generated_matrix_multiplication.cu.o.depend") # path
+set(source_file "/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu/matrix_multiplication.cu") # path
+set(NVCC_generated_dependency_file "/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu/CMakeFiles/MatrixbyMatrixMult.dir//MatrixbyMatrixMult_generated_matrix_multiplication.cu.o.NVCC-depend") # path
+set(cmake_dependency_file "/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu/CMakeFiles/MatrixbyMatrixMult.dir//MatrixbyMatrixMult_generated_matrix_multiplication.cu.o.depend") # path
 set(CUDA_make2cmake "/usr/share/cmake/Modules/FindCUDA/make2cmake.cmake") # path
 set(CUDA_parse_cubin "/usr/share/cmake/Modules/FindCUDA/parse_cubin.cmake") # path
 set(build_cubin OFF) # bool
-set(CUDA_HOST_COMPILER "/opt/gnu/11.3.0/bin/gcc") # path
+set(CUDA_HOST_COMPILER "/usr/bin/cc") # path
 # We won't actually use these variables for now, but we need to set this, in
 # order to force this file to be run again if it changes.
-set(generated_file_path "/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/MatrixbyMatrixMult.dir//.") # path
-set(generated_file_internal "/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/MatrixbyMatrixMult.dir//./MatrixbyMatrixMult_generated_matrix_multiplication.cu.o") # path
-set(generated_cubin_file_internal "/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/CMakeFiles/MatrixbyMatrixMult.dir//./MatrixbyMatrixMult_generated_matrix_multiplication.cu.o.cubin.txt") # path
+set(generated_file_path "/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu/CMakeFiles/MatrixbyMatrixMult.dir//.") # path
+set(generated_file_internal "/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu/CMakeFiles/MatrixbyMatrixMult.dir//./MatrixbyMatrixMult_generated_matrix_multiplication.cu.o") # path
+set(generated_cubin_file_internal "/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu/CMakeFiles/MatrixbyMatrixMult.dir//./MatrixbyMatrixMult_generated_matrix_multiplication.cu.o.cubin.txt") # path
 
 set(CUDA_NVCC_EXECUTABLE "/opt/cuda/12.3/bin/nvcc") # path
 set(CUDA_NVCC_FLAGS -DSM_75;-arch=sm_75;-lineinfo;-Xcompiler=-O3;-Xptxas=-v ;; ) # list

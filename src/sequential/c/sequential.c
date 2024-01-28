@@ -32,7 +32,7 @@ int main(int argc, char *argv[]){
 	char formatted_string[64];
 
     
-	if(argc < 4){
+	if(argc != 4){
         logger_error("Program should be called like ./<elf file name> <N> <K> <M>");
         exit(EXIT_FAILURE);
     }
@@ -123,6 +123,7 @@ int main(int argc, char *argv[]){
 		print_matrix(matrix_C,N,M);
 #endif
 
+	write_matrix_to_file(matrix_C,N,M,(char *)"sequential_C");
 
 	memset(logger_message,0,LOG_MESSAGE_SIZE);
 	sprintf(logger_message,"Computation + I/O time: %f\n",total_time);

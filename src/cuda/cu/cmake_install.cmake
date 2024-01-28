@@ -1,4 +1,4 @@
-# Install script for directory: /home/sstaccone/project/parallel_matrix_multiplication/cuda/src
+# Install script for directory: /home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

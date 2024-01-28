@@ -1,21 +1,245 @@
-// i.e. A[i, j] is stored in i * ncols + j element of the vector.
-//
-
 #include <iostream>
+#include <string>
+#include <iomanip>
+
+#include <string.h>
+#include <math.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include <cuda_runtime.h>  // For CUDA runtime API
 #include <helper_cuda.h>  // For checkCudaError macro
 #include <helper_timer.h>  // For CUDA SDK timers
 
+
 #define BLOCK_SIZE 32
 
-void printMatrix(const float *h_A,int ROWS,int COLS){
+
+/**************************** Logger ********************************/
+#define LOG_MESSAGE_SIZE 256
+
+void logger(const char* tag, const char* message) {
+   time_t now;
+   time(&now);
+   printf("%s [%s]: %s\n", ctime(&now), tag, message);
+}
+
+
+void logger_info(const char* message) {
+    logger((char *)"INFO",message);
+}
+
+
+void logger_error(const char* message) {
+    logger((char *)"ERROR",message);
+}
+
+
+void logger_debug(const char* message) {
+    logger((char *)"DEBUG",message);
+}
+
+/**********************************************************************/
+
+/**************************** Formatter ********************************/
+void getFormattedTime(double seconds, char *formatted_string)
+{
+    double s(fabs(seconds));
+    int h(s/3600);
+    int min(s/60 - h*60);
+    double sec(s - (h*60 + min)*60);
+    std::ostringstream oss;
+    oss<<std::setfill('0')<<std::setw(2)<<fabs(seconds)/seconds*h<<":"<<std::setw(2)<<min<<":";
+    if (sec/10<1)
+        oss<<"0";
+    oss<<sec;
+    strcpy(formatted_string,oss.str().c_str());
+}
+/**********************************************************************/
+
+
+/**************************** FILE I/O ********************************/
+#ifndef DATA_DIR
+#define DATA_DIR "../../data/"
+#endif
+
+
+
+
+
+static int create_dir(char *rel_path,mode_t mode) {
+  return mkdir(rel_path, mode);
+}
+
+
+void print_matrix(float *matrix,int rows, int cols){
+    for(int i = 0;i<rows;i++){
+        for(int j = 0;j<cols;j++){
+            printf("%f ",matrix[i*cols + j]);
+        }
+        puts("");
+    }
+}
+
+
+
+
+// Return bytes written in file
+int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
+    int ret = 0;
+    struct stat st;
+    //mode_t mode = st.st_mode & (S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP);
+    FILE *matrix_file;
+    char file_name[63];
+    char dir_name[32]; 
+    char log_string[LOG_MESSAGE_SIZE];
+
+    sprintf(dir_name,DATA_DIR);
+
+    if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
+        create_dir(dir_name,0770); // TODO: Check for the right parametric bitmask
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Created data directory, with permissions: -rw-r--r-- %s\n",dir_name);
+        logger_info(log_string);
+    }
+
+    sprintf(&(dir_name)[strlen(DATA_DIR)],"matrix%dx%d/",rows,cols);
+
+    if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
+        create_dir(dir_name,0770); // TODO: Check for the right parametric bitmask
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Created data directory, with permissions: -rw-r--r-- %s\n",dir_name);
+        logger_info(log_string);
+    }
+
+    sprintf(file_name,dir_name);
+
+    sprintf(&(file_name)[strlen(dir_name)],"matrix_%s_%dx%d.bin",matrix_name,rows,cols);
+
+    // Open or create file
+	if((matrix_file=fopen(file_name, "w+"))==NULL) {
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error opening file %s\n",file_name);
+		logger_info(log_string);
+		exit(EXIT_FAILURE);
+	}
+
+    // Write rows number as first element of the binary file
+    ret = fwrite(&rows,sizeof(int),1,matrix_file);
+    if(ret == 0){
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error writing bytes on file %s\n",file_name);
+		logger_info(log_string);
+        exit(EXIT_FAILURE);
+    }
+    
+    // Write cols number as second element of the binary file
+    ret = fwrite(&cols,sizeof(int),1,matrix_file);
+    if(ret == 0){
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error opening file %s\n",file_name);
+		logger_info(log_string);
+        exit(EXIT_FAILURE);
+    }
+
+    ret = fwrite(matrix,sizeof(float),rows*cols,matrix_file);
+    if(ret == 0){
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error opening file %s\n",file_name);
+		logger_info(log_string);
+        exit(EXIT_FAILURE);
+    }
+    
+
+    fclose(matrix_file);
+
+
+    memset(log_string,0,LOG_MESSAGE_SIZE);
+    sprintf(log_string,"File %s populated correctly!\n",file_name);
+	logger_info(log_string);
+
+    return sizeof(float)*cols*rows + sizeof(int) + sizeof(int);
+}
+
+
+void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, char *matrix_name){
+    FILE *matrix_file;
+    char file_name[64];
+    char log_string[LOG_MESSAGE_SIZE];
+    int rows;
+    int cols;
+    int ret = 0;
+
+    sprintf(file_name,DATA_DIR);
+    sprintf(&(file_name)[strlen(DATA_DIR)],"matrix%dx%d/matrix_%s_%dx%d.bin",rows_expected,cols_expected,matrix_name,rows_expected,cols_expected);
+
+    // Open or create file
+	  if((matrix_file=fopen(file_name, "r"))==NULL) {
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error opening file %s\n",file_name);
+		  logger_error(log_string);
+		  exit(EXIT_FAILURE);
+	  }
+
+    // Read rows number as first element of the binary file
+    ret = fread(&rows,sizeof(int),1,matrix_file);
+    if(ret == 0){
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error writing bytes on file %s\n",file_name);
+        logger_error(log_string); //TODO: Check with errno
+        exit(EXIT_FAILURE);
+    }else if(rows != rows_expected){    
+        logger_error("Matrix passed to the function must be choerent with the size of the matrix in the file!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read cols number as first element of the binary file
+    ret = fread(&cols,sizeof(int),1,matrix_file);
+    if(ret == 0){
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error writing bytes on file %s\n",file_name);
+        logger_error(log_string); //TODO: Check with errno
+        exit(EXIT_FAILURE);
+    }else if(cols != cols_expected){
+        logger_error("Matrix passed to the function must be choerent with the size of the matrix in the file!\n");
+        exit(EXIT_FAILURE);
+    }
+
+
+    ret = fread(matrix,sizeof(float),rows*cols,matrix_file);
+    if(ret == 0 && errno == EOF){
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error reading bytes from file %s to matrix! Error returned: %s\n",file_name, strerror(errno));
+        logger_error(log_string); 
+        exit(EXIT_FAILURE);
+    }
+    
+
+
+    fclose(matrix_file);
+}
+
+#ifdef DEBUG
+
+
+/**********************************************************************/
+
+/**
+ * @brief
+ * @param matrix
+ * @param rows 
+ * @param cols
+*/
+void printMatrix(const float *matrix,int rows,int cols){
   std::cout << "______________________________________________________________________________________________________________________________________________________\n";
-  for (int row = 0; row < ROWS; ++row) {
+  for (int row = 0; row < rows; ++row) {
     std::cout << "| ";
-    for (int col = 0; col < COLS; ++col) {
-      int idx = row * COLS + col;
-      std::cout << h_A[idx] << " ";
+    for (int col = 0; col < cols; ++col) {
+      int idx = row * cols + col;
+      std::cout << matrix[idx] << " ";
     }
     std::cout << "\t\t|\n";
   }
@@ -23,8 +247,16 @@ void printMatrix(const float *h_A,int ROWS,int COLS){
 }
 
 
-
-// Simple CPU implementation of matrix addition.
+/**
+ * @brief An implementation of the sequential matrix by matrix multiplication, taking in count memory acces
+ * and compiled with -O3. It's used only for debugging and for the developement phase of the project.
+ * @param matrix_A The memory in which are the values stored in the matrix A N x K
+ * @param matrix_B The memory in which are the values stored in the matrix B K x M
+ * @param matrix_C The memory in which are the values stored in the matrix C N x M
+ * @param N Rows dimwnsion of the matrix A and C
+ * @param K Colums dimension of the matrix A and rows dimension of the matrix B
+ * @param M Columns dimension of the matrix B and C
+*/
 void CpuMatrixVector(float *matrix_A, float *matrix_B, float *matrix_C, int N, int K, int M) {
     for (int i = 0; i < N; ++i) 
     {
@@ -38,129 +270,141 @@ void CpuMatrixVector(float *matrix_A, float *matrix_B, float *matrix_C, int N, i
     }
 
 }
+#endif
 
-__global__ void gpuMatrixVector(float* A, float* B, float* C, int n, int k, int m)
+/**
+ * @brief 
+ * @param
+ * @param
+ * @param
+ * @param
+ * @param
+ * @param
+*/
+__global__ void gpuMatrixVector(float* A, float* B, float* C, int N, int K, int M)
 {
   int col = blockIdx.x * blockDim.x + threadIdx.x;
   int row = blockIdx.y * blockDim.y + threadIdx.y;
   
-  if (row < n && col < m) {
-    for (int i = 0; i < k; ++i) {
-      C[row * m + col]  += A[row * k + i] * B[i * m + col];
+  if (row < N && col < M) {
+    for (int i = 0; i < K; ++i) {
+      C[row * M + col]  += A[row * K + i] * B[i * M + col];
       }
   }
 
 }
 
-
+/**
+ * @brief
+ * @param
+ * @param
+*/
 int main(int argc, char** argv) {
+  int N = 0;
+  int K = 0;
+  int M = 0;
 
-  if (argc != 4) {
-    fprintf(stderr,"[ERROR] Correct usage: %s n k m\nYou should insert matrices dimensons!\n",argv[0]);
-    exit(EXIT_FAILURE);
-  }
-  int n = (int) atoi(argv[1]);
-  int k = (int) atoi(argv[2]);
-  int m = (int) atoi(argv[3]);
+	if(argc != 4){
+        logger_error("Program should be called like ./<elf file name> <N> <K> <M>");
+        exit(EXIT_FAILURE);
+    }
 
-  
+    if (sscanf (argv[1], "%d", &N) != 1) {
+        fprintf(stderr, "[ERROR] - not an integer");
+        logger_error("Program should be called like ./<elf file name> <N> <K> <M>");
+        exit(EXIT_FAILURE);
+    }
+
+    if (sscanf (argv[2], "%d", &K) != 1) {
+        fprintf(stderr, "[ERROR] - not an integer");
+        logger_error("Program should be called like ./<elf file name> <N> <K> <M>");
+        exit(EXIT_FAILURE);
+    }
+
+	if (sscanf (argv[3], "%d", &M) != 1) {
+        fprintf(stderr, "[ERROR] - not an integer");
+        logger_error("Program should be called like ./<elf file name> <N> <K> <M>");
+        exit(EXIT_FAILURE);
+    }
+
+
   
   // ----------------------- Host memory initialisation ----------------------- //
+  float flopcnt=2.e-3*N*M;
 
-  float* h_A = new float[n * k];
-  float* h_B = new float[k * m];
-  float* h_C = new float[n * m];
+  float* h_A = new float[N * K];
+  float* h_B = new float[K * M];
+  float* h_C = new float[N * M];
 
-  float* h_C_result_host = new float[n * m];
-  float* h_C_result_device = new float[n * m];
+  float* h_C_result_host = new float[N * M];
+  float* h_C_result_device = new float[N * M];
 
   float time;
+  char formatted_time_string[64];
   cudaEvent_t start, stop;
 
   dim3 blockDim(BLOCK_SIZE,BLOCK_SIZE); // Don't need to write z = 1, max 1024
-  int gx = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;//(m % blockDim.x==0) ? m / blockDim.x : m / blockDim.x + 1;
-  int gy = (m + BLOCK_SIZE - 1) / BLOCK_SIZE;//(n % blockDim.y==0) ? n / blockDim.y : n / blockDim.y + 1;
+  int gx = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;//(m % blockDim.x==0) ? m / blockDim.x : m / blockDim.x + 1;
+  int gy = (M + BLOCK_SIZE - 1) / BLOCK_SIZE;//(n % blockDim.y==0) ? n / blockDim.y : n / blockDim.y + 1;
   dim3 gridDim(gx, gy);
   printf("%d %d\n",gx,gy);
 
-  srand(123456);
-  for (int row = 0; row < n; ++row) {
-    for (int col = 0; col < m; ++col) {
-      int idx = row * m + col;
-      h_C[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-    }
-  }
-
-
-  for (int row = 0; row < n; ++row) {
-    for (int col = 0; col < k; ++col) {
-      int idx = row * k + col;
-      h_A[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-    }
-  }
-
-  for (int row = 0; row < k; ++row) {
-    for (int col = 0; col < m; ++col) {
-      int idx = row * m + col;
-      h_B[idx] = 100.0f * static_cast<float>(rand()) / RAND_MAX;
-    }
-  }
+  read_matrix_from_file(h_A,N,K,(char *)"A");
+  read_matrix_from_file(h_B,K,M,(char *)"B");
+  read_matrix_from_file(h_C,N,M,(char *)"C");
+  read_matrix_from_file(h_C_result_host,N,M,(char *)"sequential_C");
 
   std::cout << "[INFO] Matrix initialization done.\n";
 
-  memcpy(h_C_result_host,h_C,n * m * sizeof(float));
 #ifdef DEBUG
   puts("\t[MATRIX] Matrix A");
-  printMatrix(h_A,n,k);
+  printMatrix(h_A,N,K);
   puts("\t[MATRIX] Matrix B");
-  printMatrix(h_B,k,m);
+  printMatrix(h_B,K,M);
   puts("\t[MATRIX] Matrix C");
-  printMatrix(h_C,n,m);
+  printMatrix(h_C,N,M);
 #endif
-  std::cout << "Test case: " << n  << " x " << m << std::endl;
+  std::cout << "Test case: " << N  << " x " << M << std::endl;
 // ---------------------- Device memory initialisation ---------------------- //
 
   float *d_A, *d_B, *d_C;
 
-  checkCudaErrors(cudaMalloc((void**) &d_A, n * k * sizeof(float)));
-  checkCudaErrors(cudaMalloc((void**) &d_B, k * m * sizeof(float)));
-  checkCudaErrors(cudaMalloc((void**) &d_C, n * m * sizeof(float)));
+  checkCudaErrors(cudaMalloc((void**) &d_A, N * K * sizeof(float)));
+  checkCudaErrors(cudaMalloc((void**) &d_B, K * M * sizeof(float)));
+  checkCudaErrors(cudaMalloc((void**) &d_C, N * M * sizeof(float)));
 
   // Copy matrices from the host (CPU) to the device (GPU).
-  checkCudaErrors(cudaMemcpy(d_A, h_A, n * k * sizeof(float), cudaMemcpyHostToDevice));
-  checkCudaErrors(cudaMemcpy(d_B, h_B, k * m * sizeof(float), cudaMemcpyHostToDevice));
-  checkCudaErrors(cudaMemcpy(d_C, h_C, n * m * sizeof(float), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(d_A, h_A, N * K * sizeof(float), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(d_B, h_B, K * M * sizeof(float), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(d_C, h_C, N * M * sizeof(float), cudaMemcpyHostToDevice));
 
+#ifdef DEBUG
   // ------------------------ Calculations on the CPU ------------------------- //
-  float flopcnt=2.e-3*n*m;
-  
+
   // Create the CUDA SDK timer.
   StopWatchInterface* timer = 0;
   sdkCreateTimer(&timer);
 
   timer->start();
   
-  CpuMatrixVector(h_A, h_B, h_C_result_host, n, k ,m);
+  CpuMatrixVector(h_A, h_B, h_C_result_host, N, K ,M);
 
   timer->stop();
   float cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " MFLOPS " << cpuflops << std::endl;
 
-#ifdef DEBUG
   puts("\t[RESULT] Sequential result");
-  printMatrix(h_C_result_host,n,m);
+  printMatrix(h_C_result_host,N,M);
 #endif
 
 // ------------------------ Calculations on the GPU ------------------------- //
-
-  // TODO Calculate the dimension of the grid of blocks. A 1D grid suffices.
   
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
   cudaEventRecord(start, 0);
 
 
-  gpuMatrixVector<<<gridDim, blockDim >>>(d_A, d_B, d_C, n, k, m);
+  gpuMatrixVector<<<gridDim, blockDim >>>(d_A, d_B, d_C, N, K, M);
   checkCudaErrors(cudaDeviceSynchronize());
 
   cudaEventRecord(stop, 0);
@@ -171,31 +415,34 @@ int main(int argc, char** argv) {
 
 
   float gpuflops=flopcnt/ time;
-  std::cout << "  GPU time: " << time << " ms." << " MFLOPS " << gpuflops<<std::endl;
+  memset(formatted_time_string, 0, strlen(formatted_time_string));
+  getFormattedTime(time/1000.0f,formatted_time_string);
+  std::cout << "  GPU time: " << formatted_time_string << " MFLOPS " << gpuflops<<std::endl;
 
   // Download the resulting vector d_y from the device and store it in h_y_d.
-  checkCudaErrors(cudaMemcpy(h_C_result_device, d_C, n * m * sizeof(float),cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(h_C_result_device, d_C, N * M * sizeof(float),cudaMemcpyDeviceToHost));
 
 #ifdef DEBUG
   puts("\t[RESULT] CUDA result");
-  printMatrix(h_C_result_device,n,m);
+  printMatrix(h_C_result_device,N,M);
 #endif
   // Now let's check if the results are the same.
   float reldiff = 0.0f;
   float diff = 0.0f;
   
-  for (int row = 0; row < n; ++row) {
-    for(int col = 0; col < m; ++col){
-      float maxabs = std::max(std::abs(h_C_result_device[row * m + col]),std::abs(h_C_result_host[row * m + col]));
+  for (int row = 0; row < N; ++row) {
+    for(int col = 0; col < M; ++col){
+      float maxabs = std::max(std::abs(h_C_result_device[row * M + col]),std::abs(h_C_result_host[row * M + col]));
       if (maxabs == 0.0){
         maxabs=1.0;
       } 
-      reldiff = std::max(reldiff, std::abs(h_C_result_device[row * m + col] - h_C_result_host[row * m + col])/maxabs);
-      diff = std::max(diff, std::abs(h_C_result_device[row * m + col] - h_C_result_host[row * m + col]));
+      reldiff = std::max(reldiff, std::abs(h_C_result_device[row * M + col] - h_C_result_host[row * M + col])/maxabs);
+      diff = std::max(diff, std::abs(h_C_result_device[row * M + col] - h_C_result_host[row * M + col]));
     }
   }
   std::cout << "Max diff =  " << diff << "  Max rel diff = " << reldiff << std::endl;
   fflush(stdout);
+
   // Rel diff should be as close as possible to unit roundoff; float
   // corresponds to IEEE single precision, so unit roundoff is
   // 1.19e-07
@@ -203,8 +450,10 @@ int main(int argc, char** argv) {
 
 // ------------------------------- Cleaning up ------------------------------ //
 
+  write_matrix_to_file(h_C_result_device,N,M,(char *)"cuda_C");
+#ifdef DEBUG
   delete timer;
-
+#endif
   checkCudaErrors(cudaFree(d_A));
   checkCudaErrors(cudaFree(d_B));
   checkCudaErrors(cudaFree(d_C));

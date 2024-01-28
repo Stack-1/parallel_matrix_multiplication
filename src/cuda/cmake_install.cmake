@@ -1,4 +1,4 @@
-# Install script for directory: /home/sstaccone/project/parallel_matrix_multiplication/cuda
+# Install script for directory: /home/sstaccone/project/parallel_matrix_multiplication/src/cuda
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -44,7 +44,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/home/sstaccone/project/parallel_matrix_multiplication/cuda/src/cmake_install.cmake")
+  include("/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/cu/cmake_install.cmake")
 
 endif()
 
@@ -56,5 +56,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/home/sstaccone/project/parallel_matrix_multiplication/cuda/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/sstaccone/project/parallel_matrix_multiplication/src/cuda/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
