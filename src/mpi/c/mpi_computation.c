@@ -5,8 +5,8 @@
 #include <math.h>
 #include <string.h>
 #include <mpi.h>
-#include "utils/stackio.h"
-#include "logger/logger.h"
+#include "../../utils/logger/logger.h"
+#include "../../utils/file_io/stackio.h"
 
 #define BLOCK_ROWS 3
 #define BLOCK_COLS 3
