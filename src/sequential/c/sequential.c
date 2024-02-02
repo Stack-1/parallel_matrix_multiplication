@@ -11,11 +11,11 @@
 #define LOG_MESSAGE_SIZE 256
 #endif
 
-void compute_sequential_matrix_by_matrix_multiplication(float *matrix_A,float *matrix_B,float *matrix_C,int N,int K, int M){
-	for (int i=0;i<N;i++){ 
-        for(int k=0;k<K;k++) {
-            for(int j=0;j<M;j++){    
-                matrix_C[i*M+j]=matrix_C[i*M+j]+matrix_A[i*K+k]*matrix_B[k*M+j];
+void compute_sequential_matrix_by_matrix_multiplication(double *matrix_A,double *matrix_B,double *matrix_C,int N,int K, int M){
+	for (int i=0; i<N; ++i){ 
+        for(int k=0; k<K; ++k) {
+            for(int j=0; j<M; ++j){    
+                matrix_C[i * M + j] = matrix_C[i * M + j] + matrix_A[i * K + k] * matrix_B[k * M + j];
 			}
     	}
 	}
@@ -55,9 +55,9 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
-	float *matrix_A;
-	float *matrix_B;
-	float *matrix_C;
+	double *matrix_A;
+	double *matrix_B;
+	double *matrix_C;
 
     puts("");
 	puts("---------------------------------------------------------------------------[START]---------------------------------------------------------------------------");
@@ -67,9 +67,9 @@ int main(int argc, char *argv[]){
 	sprintf(logger_message,"Starting sequential computation for matrix %d x %d",N,M);
 	logger_info(logger_message);
 
-	matrix_A = (float *)malloc(N*K*sizeof(float));
-	matrix_B = (float *)malloc(K*M*sizeof(float));
-	matrix_C = (float *)malloc(N*M*sizeof(float));
+	matrix_A = (double *)malloc(N*K*sizeof(double));
+	matrix_B = (double *)malloc(K*M*sizeof(double));
+	matrix_C = (double *)malloc(N*M*sizeof(double));
 	
 
 	logger_info("Matrix memory correctly allocated on HOST");
@@ -88,8 +88,6 @@ int main(int argc, char *argv[]){
 	memset(logger_message,0,LOG_MESSAGE_SIZE);
 	sprintf(logger_message,"Reading matrix A,B and C from memory ended in %s",formatted_string);
 	logger_info(logger_message);
-
-
 
 	logger_info("Matrix values acquired correctly on HOST");
 

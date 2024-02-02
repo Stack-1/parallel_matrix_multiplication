@@ -34,10 +34,10 @@ int main(int argc, char *argv[]){
 
 
 
-    float *matrix;
+    double *matrix;
 
     // Allocate memory
-    matrix = (float *)malloc(sizeof(float)*rows*cols);
+    matrix = (double *)malloc(sizeof(double)*rows*cols);
     
 
 

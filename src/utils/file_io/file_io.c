@@ -23,7 +23,7 @@ static int create_dir(char *rel_path,mode_t mode) {
 }
 
 
-void print_matrix(float *matrix,int rows, int cols){
+void print_matrix(double *matrix,int rows, int cols){
     for(int i = 0;i<rows;i++){
         for(int j = 0;j<cols;j++){
             printf("%f ",matrix[i*cols + j]);
@@ -36,7 +36,7 @@ void print_matrix(float *matrix,int rows, int cols){
 
 
 // Return bytes written in file
-int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
+int write_matrix_to_file(double *matrix, int rows, int cols, char *matrix_name){
     int ret = 0;
     struct stat st;
     //mode_t mode = st.st_mode & (S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP);
@@ -63,7 +63,7 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
         logger_info(log_string);
     }
 
-    sprintf(file_name,dir_name);
+    memcpy(file_name,dir_name,strlen(dir_name));
 
     sprintf(&(file_name)[strlen(dir_name)],"matrix_%s_%dx%d.bin",matrix_name,rows,cols);
 
@@ -93,7 +93,7 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
         exit(EXIT_FAILURE);
     }
 
-    ret = fwrite(matrix,sizeof(float),rows*cols,matrix_file);
+    ret = fwrite(matrix,sizeof(double),rows*cols,matrix_file);
     if(ret == 0){
         memset(log_string,0,LOG_MESSAGE_SIZE);
         sprintf(log_string,"Error opening file %s\n",file_name);
@@ -109,16 +109,16 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
     sprintf(log_string,"File %s populated correctly!\n",file_name);
 	logger_info(log_string);
 
-    return sizeof(float)*cols*rows + sizeof(int) + sizeof(int);
+    return sizeof(double)*cols*rows + sizeof(int) + sizeof(int);
 }
 
 
-void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, char *matrix_name){
+void read_matrix_from_file(double *matrix,int rows_expected, int cols_expected, char *matrix_name){
     FILE *matrix_file;
     char file_name[64];
     char log_string[LOG_MESSAGE_SIZE];
-    int rows;
-    int cols;
+    int rows = 0;
+    int cols = 0;
     int ret = 0;
 
     sprintf(file_name,DATA_DIR);
@@ -157,7 +157,7 @@ void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, c
     }
 
 
-    ret = fread(matrix,sizeof(float),rows*cols,matrix_file);
+    ret = fread(matrix,sizeof(double),rows*cols,matrix_file);
     if(ret == 0 && errno == EOF){
         memset(log_string,0,LOG_MESSAGE_SIZE);
         sprintf(log_string,"Error reading bytes from file %s to matrix! Error returned: %s\n",file_name, strerror(errno));
@@ -170,16 +170,46 @@ void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, c
     fclose(matrix_file);
 }
 
+void read_matrix_from_file_mpi(double *matrix,int rows_expected, int cols_expected, char *matrix_name){
+    FILE *matrix_file;
+    char file_name[64];
+    char log_string[LOG_MESSAGE_SIZE];
+    int rows = rows_expected;
+    int cols = cols_expected;
+    int ret = 0;
 
+    sprintf(file_name,DATA_DIR);
+    sprintf(&(file_name)[strlen(DATA_DIR)],"matrix%dx%d/matrix_%s_%dx%d.bin",rows_expected,cols_expected,matrix_name,rows_expected,cols_expected);
+
+    // Open or create file
+	if((matrix_file=fopen(file_name, "r"))==NULL) {
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error opening file %s\n",file_name);
+		logger_error(log_string);
+		exit(EXIT_FAILURE);
+	}
+
+    ret = fread(matrix,sizeof(double),rows*cols,matrix_file);
+    if(ret == 0 && errno == EOF){
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error reading bytes from file %s to matrix! Error returned: %s\n",file_name, strerror(errno));
+        logger_error(log_string); 
+        exit(EXIT_FAILURE);
+    }
+    
+
+
+    fclose(matrix_file);
+}
 
 void test(){
     int rows = 16;
     int cols = 16;
-    float *matrix;
-    float *matrix_recv;
+    double *matrix;
+    double *matrix_recv;
 
-    matrix = (float *)malloc(rows*cols*sizeof(float));
-    matrix_recv = (float *)malloc(rows*cols*sizeof(float));
+    matrix = (double *)malloc(rows*cols*sizeof(double));
+    matrix_recv = (double *)malloc(rows*cols*sizeof(double));
     
 
     

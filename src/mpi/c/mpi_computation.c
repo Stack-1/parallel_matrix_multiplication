@@ -1,49 +1,73 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <time.h>
 #include <math.h>
 #include <string.h>
 #include <mpi.h>
 #include "../../utils/logger/logger.h"
+#include "../../utils/string_formatter/formatter.h"
 #include "../../utils/file_io/stackio.h"
+
 
 #define BLOCK_ROWS 3
 #define BLOCK_COLS 3
 #define AUDIT if(my_rank == 0)
 
+#define max(a,b) \
+    ({ __typeof__ (a) _a = (a); \
+        __typeof__ (b) _b = (b); \
+        _a > _b ? _a : _b; })
 
-/*
+typedef struct computed_dimensions{
+    int rows;
+    int cols;
+}computed_dimensions;
 
-/// @brief This function computes the matrix multiplication between A and B, and saves the result in the array C_temp.
-float *multiplyMatrices(float *A, int A_rows, int A_cols, float *B, int B_rows, int B_cols, float *C_temp, int rank) {
+
+void write_result_to_file(char *filename, double *result, int result_len, int rank, int matrix_rows, int matrix_cols, int block_rows, int proc_rows, int proc_cols, MPI_Comm comm) {
     
-    if (A_cols != B_rows) {
-        fprintf(stderr, "The number of columns in A must be equal to the number of rows in B.\n");
-        return NULL;
+    MPI_Datatype filetype;
+    MPI_File file;
+
+    MPI_Status status;
+
+    int rank_norm = rank / proc_cols;
+    int gsizes[2], distribs[2], dargs[2], psizes[2];
+
+    gsizes[0] = matrix_rows; /* rows of the original matrix */
+    gsizes[1] = matrix_cols; /* columns of the original matrix */
+
+    /* block cyclic distribution */
+    distribs[0] = MPI_DISTRIBUTE_CYCLIC;
+    distribs[1] = MPI_DISTRIBUTE_CYCLIC;
+
+    dargs[0] = block_rows; /* rows of the block */
+    dargs[1] = matrix_cols; /* columns of the block */
+
+    psizes[0] = proc_rows; /* no. of processes in vertical dimension of process grid */
+    psizes[1] = 1; /* no. of processes in horizontal dimension of process grid (1, because every process in the same row gets the same rows of the original matrix) */
+
+    MPI_Type_create_darray(proc_rows, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_DOUBLE, &filetype);
+    MPI_Type_commit(&filetype);
+    
+    MPI_File_open(comm, filename, MPI_MODE_CREATE | MPI_MODE_RDWR, MPI_INFO_NULL, &file);
+
+    if (file == MPI_FILE_NULL) {
+        fprintf(stderr, "Error in opening file.\n");
+        MPI_Abort(comm, 1);
     }
 
+    MPI_File_set_view(file, 0, MPI_DOUBLE, filetype, "native", MPI_INFO_NULL);
+    
+    MPI_File_write_all(file, result, result_len, MPI_DOUBLE, &status);
 
-
-    C_temp = (float *)calloc(A_rows * B_cols, sizeof(float));
-    if (C_temp == NULL) {
-        fprintf(stderr, "C_temp allocation failed");
-        return NULL;
-    }
-
-    for (int i = 0; i < A_rows; ++i) {
-        for (int j = 0; j < B_cols; ++j) {
-            for (int k = 0; k < A_cols; ++k) {
-                C_temp[i * B_cols + j] += A[i * A_cols + k] * B[k * B_cols + j];
-            }
-        }
-    }
-
-    return C_temp;
+    MPI_File_close(&file);
 }
 
 
-void *send_matrix_to_root(float *matrix, int num_rows, int num_cols, int rank, int proc_rows, int proc_cols, MPI_Comm comm) {
+void send_matrix_to_root(double *matrix, double **return_matrix, int num_rows, int num_cols, int my_rank, int proc_rows, int proc_cols, MPI_Comm comm) {
     
     //
     //   E.g.: 
@@ -56,23 +80,17 @@ void *send_matrix_to_root(float *matrix, int num_rows, int num_cols, int rank, i
       //      the processes 0 and 5 are the receivers
     
 
-    int row_index = rank / proc_cols;           // this is the index of the row of the process grid in which the current process is located
-    int root_process = row_index * proc_cols;   // this is the index of the first process in the same row in which the current process is located
+    int row_index = my_rank / proc_cols;           // this is the index of the row of the process grid in which the current process is located
 
     // There will be a group for each row in the process grid (so, proc_rows groups).
     //  We're gonna create a new communicator for each group, having color equals to the row index.
     
     MPI_Comm group_comm;
-    MPI_Comm_split(comm, row_index, rank, &group_comm);    // the processes on the same row will be assigned to the same group
+    MPI_Comm_split(comm, row_index, my_rank, &group_comm);    // the processes on the same row will be assigned to the same group
 
-    // this array will contain the element-wise sum of all the C_temp matrices belonging to the processes in the same group
-    float *result = (float *)calloc(num_rows * num_cols, sizeof(float));  
-    if (result == NULL) {
-        fprintf(stderr, "result allocation failed");
-        return NULL;
-    }
 
-    MPI_Reduce(matrix, result, num_rows*num_cols, MPI_FLOAT, MPI_SUM, 0, group_comm);
+
+    MPI_Reduce(matrix, *return_matrix, num_rows*num_cols, MPI_DOUBLE, MPI_SUM, 0, group_comm);
 
     MPI_Barrier(group_comm);    // sync barrier
 
@@ -81,7 +99,7 @@ void *send_matrix_to_root(float *matrix, int num_rows, int num_cols, int rank, i
     MPI_Comm_rank(group_comm, &group_rank);
 
     if (group_rank == 0)  {
-        printf("\n[Process %d] Printing the resulting matrix C_temp (%dx%d)\n", rank, num_rows, num_cols);
+        printf("\n[Process %d] Printing the resulting matrix C_temp (%dx%d)\n", my_rank, num_rows, num_cols);
         for (int i = 0; i < num_rows; i++) {
             puts("");
             for (int j = 0; j < num_cols; j++) {
@@ -93,54 +111,8 @@ void *send_matrix_to_root(float *matrix, int num_rows, int num_cols, int rank, i
     }
     #endif
 
-    return result;
 }
 
-
-void write_result_to_file(char *filename, float *result, int result_len, int rank, int matrix_rows, int matrix_cols, int block_rows, int proc_rows, int proc_cols, MPI_Comm comm) {
-    
-    printf("[Process %d] Trying to write result (length %d) on the resulting matrix (%dx%d) file\n", rank, result_len, matrix_rows, matrix_cols);
-
-    MPI_Datatype filetype;
-    MPI_File file;
-
-    MPI_Status status;
-
-    int rank_norm = rank / proc_cols;
-    printf("[Process %d] rank_norm: %d\n", rank, rank_norm);
-
-    int gsizes[2], distribs[2], dargs[2], psizes[2];
-
-    gsizes[0] = matrix_rows; // rows of the original matrix 
-    gsizes[1] = matrix_cols; // columns of the original matrix
-
-    // block cyclic distribution 
-    distribs[0] = MPI_DISTRIBUTE_CYCLIC;
-    distribs[1] = MPI_DISTRIBUTE_CYCLIC;
-
-    dargs[0] = block_rows; // rows of the block 
-    dargs[1] = matrix_cols; // columns of the block 
-
-    psizes[0] = proc_rows; // no. of processes in vertical dimension of process grid 
-    psizes[1] = 1; // no. of processes in horizontal dimension of process grid (1, because every process in the same row gets the same rows of the original matrix) 
-
-    MPI_Type_create_darray(proc_rows, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
-    MPI_Type_commit(&filetype);
-    
-    MPI_File_open(comm, filename, MPI_MODE_CREATE | MPI_MODE_RDWR, MPI_INFO_NULL, &file);
-
-    if (file == MPI_FILE_NULL) {
-        fprintf(stderr, "Error in opening file.\n");
-        MPI_Abort(comm, 1);
-    }
-
-    MPI_File_set_view(file, 0, MPI_FLOAT, filetype, "native", MPI_INFO_NULL);
-    
-    MPI_File_write_all(file, result, result_len, MPI_FLOAT, &status);
-
-    MPI_File_close(&file);
-}
-*/
 
 
 
@@ -158,9 +130,9 @@ void write_result_to_file(char *filename, float *result, int result_len, int ran
  * @param proc_cols Number of columns of the process grid
  * @return Number of floats the process should allocate to receive its portion of the matrix
 */
-int compute_submatrix_dimension(
-        size_t matrix_rows, 
-        size_t matrix_cols, 
+computed_dimensions *compute_submatrix_dimension(
+        int matrix_rows, 
+        int matrix_cols, 
         int block_rows, 
         int block_cols, 
         int proc_rows, 
@@ -168,15 +140,18 @@ int compute_submatrix_dimension(
         int my_rank) {
 
     int my_rank_coord_x, my_rank_coord_y;
+    computed_dimensions *dimensions = (computed_dimensions *)malloc(sizeof(computed_dimensions));
 
     my_rank_coord_x = my_rank / proc_cols;
     my_rank_coord_y = my_rank % proc_cols; 
 
-    //printf("[Process %d] my coordinates are (%d, %d)\n", my_rank, my_rank_coord_x, my_rank_coord_y);
-    
+#ifdef DEBUG
+    AUDIT
+        printf("[Process %d] my coordinates are (%d, %d)\n", my_rank, my_rank_coord_x, my_rank_coord_y);
+#endif
 
     /* COLS */
-    int tot_num_blocks = ceil((float)matrix_cols / (float)block_cols); // 12 / 3 = 4
+    int tot_num_blocks = ceil( (float)matrix_cols / (float)block_cols); // 12 / 3 = 4
 
     int tot_blocks_assigned = tot_num_blocks / proc_cols; // 4 / 2 = 2
 
@@ -195,7 +170,7 @@ int compute_submatrix_dimension(
 
     /* ROWS */ 
     // my_rank_coord_x = 1 
-    tot_num_blocks = ceil((float)matrix_rows / (float)block_rows);    // 25 / 3 = 9
+    tot_num_blocks = ceil((double)matrix_rows / (double)block_rows);    // 25 / 3 = 9
 
     tot_blocks_assigned = tot_num_blocks / proc_rows;   // 9 / 3 = 3
 
@@ -217,7 +192,9 @@ int compute_submatrix_dimension(
     printf("[Process %d] Assigned %d elements\n", my_rank, tot_nums_assigned_y * tot_nums_assigned_x);
     puts("");
 
-    return tot_nums_assigned_x * tot_nums_assigned_y;
+    dimensions->rows = tot_nums_assigned_y;
+    dimensions->cols = tot_nums_assigned_x;
+    return dimensions;
 
 }
 
@@ -232,8 +209,11 @@ int compute_submatrix_dimension(
 */
 void generate_block_cyclic_distribution_matrix_A(
         char *matrix_file_name, 
-        size_t matrix_rows, 
-        size_t matrix_cols, 
+        double **matrix_A,
+        int N, 
+        int K, 
+        int N_subarray,
+        int K_subarray,
         int block_rows, 
         int block_cols, 
         int process_grid_y, 
@@ -241,34 +221,22 @@ void generate_block_cyclic_distribution_matrix_A(
         int my_rank,
         MPI_Comm comm) {
 
-    int matrix_size;
-    float *matrix;
     char logger_message[LOG_MESSAGE_SIZE];
     
     MPI_Datatype filetype;
     MPI_File file;
-
     MPI_Status status;
 
     /**
      * Reading from file.
      */
-    int gsizes[2], distribs[2], dargs[2], psizes[2];
+    int dims[2] = {N,K};
+    int distribs[2] =  {MPI_DISTRIBUTE_CYCLIC, MPI_DISTRIBUTE_CYCLIC};
+    int dargs[2] = {block_rows,block_cols};  // Arguments to pass to the MPI_Datatype constructor
+    int proc_dims[2] = {process_grid_y,process_grid_x};
+    int num_procs = process_grid_x * process_grid_y;
 
-    gsizes[0] = matrix_rows; /* x dimension of the original matrix */
-    gsizes[1] = matrix_cols; /* y dimension of the original matrix */
-
-    /* block cyclic distribution */
-    distribs[0] = MPI_DISTRIBUTE_CYCLIC;
-    distribs[1] = MPI_DISTRIBUTE_CYCLIC;
-
-    dargs[0] = block_rows; /* x dimension of the block */
-    dargs[1] = block_cols; /* y dimension of the block */
-
-    psizes[0] = process_grid_y; /* no. of processes in vertical dimension of process grid */
-    psizes[1] = process_grid_x; /* no. of processes in horizontal dimension of process grid */
-
-    MPI_Type_create_darray(process_grid_y * process_grid_x, my_rank, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
+    MPI_Type_create_darray(num_procs, my_rank, 2, dims, distribs, dargs, proc_dims, MPI_ORDER_C, MPI_DOUBLE, &filetype);
     MPI_Type_commit(&filetype);
 
     MPI_File_open(comm, matrix_file_name, MPI_MODE_RDONLY, MPI_INFO_NULL, &file);
@@ -280,24 +248,18 @@ void generate_block_cyclic_distribution_matrix_A(
         MPI_Abort(comm, 1);
     }
 
-    MPI_File_set_view(file, 0, MPI_FLOAT, filetype, "native", MPI_INFO_NULL);
-
+    MPI_File_set_view(file, 2*sizeof(int), MPI_DOUBLE, filetype, "native", MPI_INFO_NULL);
     
-    matrix_size = compute_submatrix_dimension(matrix_rows, matrix_cols, block_rows, block_cols, process_grid_y, process_grid_x, my_rank);
-
-    matrix = (float*) malloc(matrix_size * sizeof(float));
-    MPI_File_read_all(file, matrix, matrix_size,
-            MPI_FLOAT, &status);
+    MPI_File_read_all(file, (*matrix_A), N_subarray * K_subarray, MPI_DOUBLE, &status);
 
     MPI_File_close(&file);
 
-    printf("[Process %d] received : ", my_rank);
+    /*printf("[Process %d] received : ", my_rank);
     for (int i = 0; i < matrix_size; i++) {
         printf("%f ", matrix[i]);
     }
     puts("\n");
-    fflush(stdout);
-
+    fflush(stdout);*/
 }
 
 /**
@@ -311,42 +273,31 @@ void generate_block_cyclic_distribution_matrix_A(
  * @param my_rank ID of the current process (PID)
  * @param comm MPI private comunicator used in thi kernel of computation
 */
-float *generate_rows_cyclyc_distribution(
+void generate_rows_distribution(
         char *matrix_file_name, 
-        size_t matrix_rows, 
-        size_t matrix_cols, 
+        double **matrix,
+        int K, 
+        int M, 
+        int K_subarray,
+        int M_subarray,
         int block_rows, 
-        int proc_rows, 
+        int proc_cols, 
         int my_rank, 
         MPI_Comm comm) {
 
-    int matrix_size;
-    int num_rows = (int)matrix_rows / (block_rows*proc_rows);
-    float *matrix;
-    
     MPI_Datatype filetype;
     MPI_File file;
-
     MPI_Status status;
 
-    int rank_norm = my_rank % proc_rows;
+    int rank_norm = my_rank % proc_cols;
+    int gsizes[2] = {K, M};
+    int distribs[2] = {MPI_DISTRIBUTE_CYCLIC,MPI_DISTRIBUTE_CYCLIC};
+    int dargs[2] = {block_rows, M_subarray}; // I want to have all the cols of the matrix, having only the correct rows 
+    int psizes[2] = {proc_cols,1}; // We want to divide the matrix only in one dimension, by rows
 
-    int gsizes[2], distribs[2], dargs[2], psizes[2];
+    
 
-    gsizes[0] = matrix_rows; // rows of the original matrix 
-    gsizes[1] = matrix_cols; // columns of the original matrix 
-
-    // block cyclic distribution 
-    distribs[0] = MPI_DISTRIBUTE_CYCLIC;
-    distribs[1] = MPI_DISTRIBUTE_CYCLIC;
-
-    dargs[0] = block_rows; // rows of the block 
-    dargs[1] = matrix_cols; // columns of the block 
-
-    psizes[0] = proc_rows; // no. of processes in vertical dimension of process grid 
-    psizes[1] = 1; // no. of processes in horizontal dimension of process grid (1, because every process in the same row gets the same rows of the original matrix) 
-
-    MPI_Type_create_darray(proc_rows, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
+    MPI_Type_create_darray(proc_cols, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_DOUBLE, &filetype);
     MPI_Type_commit(&filetype);
 
     MPI_File_open(comm, matrix_file_name, MPI_MODE_RDONLY, MPI_INFO_NULL, &file);
@@ -356,29 +307,46 @@ float *generate_rows_cyclyc_distribution(
         MPI_Abort(comm, 1);
     }
 
-    MPI_File_set_view(file, 0, MPI_FLOAT, filetype, "native", MPI_INFO_NULL);
-    
-    matrix_size = num_rows*matrix_cols;
 
-    matrix = (float*) malloc(sizeof(float));
-    if (matrix == NULL) {
-        fprintf(stderr, "Memory allocation failed");
-        return NULL;
-    }
-    MPI_File_read_all(file, matrix, matrix_size,
-            MPI_FLOAT, &status);
+    MPI_File_set_view(file, 2*sizeof(int), MPI_DOUBLE, filetype, "native", MPI_INFO_NULL);
+    
+    MPI_File_read_all(file, (*matrix), K_subarray*M_subarray, MPI_DOUBLE, &status);
+
 
     MPI_File_close(&file);
 
-    printf("\n======\ni = %d\nBlock received : ", my_rank);
+    /*printf("\n======\ni = %d\nBlock received : ", my_rank);
     for (int i = 0; i < matrix_size; i++) {
-        printf("%d ", (int)matrix[i]);
+        printf("%f ", matrix[i]);
     }
     puts("\n");
-    fflush(stdout);
-
+    fflush(stdout);*/
 }
 
+
+/** @brief This function computes the matrix multiplication between A and B, and saves the result in the array C_temp.
+ * 
+*/
+void multiplyMatrices(double *matrix_A, double *matrix_B, double **matrix_C, int N, int K, int M, int my_rank) {
+    
+    double start, end;
+
+    printf("[Process %d] Multiplying a matrix %dx%d\n", my_rank, N, M);
+    start = MPI_Wtime();
+
+	for (int i=0; i<N; ++i){ 
+        for(int k=0; k<K; ++k) {
+            for(int j=0; j<M; ++j){    
+                (*matrix_C)[i * M + j] += matrix_A[i * K + k] * matrix_B[k * M + j];
+			}
+    	}
+	}
+
+    end = MPI_Wtime();
+
+    printf("[Process %d] Tempo di ciclo nella moltiplicazione = %f\n", my_rank, end-start);
+
+}
 
 
 /**
@@ -396,34 +364,112 @@ void compute_process_parallel_matrix_by_matrix_multiplication(
         char *matrix_A_file_name,
         char *matrix_B_file_name,
         char *matrix_C_file_name,
-        size_t rows,
-        size_t cols,
+        int N,
+        int K,
+        int M,
         int number_of_processes,
         int my_rank,
         MPI_Comm comm){
 
     int process_grid_rows, process_grid_cols;
-    //float *matrix_data_process_subarray = (float *)malloc(sizeof());
+    computed_dimensions *matrix_sizes;
 
-	process_grid_cols = ceil(sqrt(number_of_processes)); //Prefer getting more process on column to scale better
-	process_grid_rows = (int)(sqrt(number_of_processes));
+    double *matrix_A_subarray;
+    double *matrix_B_subarray;
+    double *matrix_C_subarray;
+    double *matrix_C_subarray_rows;
+    double *matrix_C_subarray_from_file;
 
-    printf("%d\n",compute_submatrix_dimension(rows,cols,BLOCK_ROWS,BLOCK_COLS,process_grid_rows,process_grid_cols,my_rank));
+    int N_subarray;
+    int K_subarray;
+    int M_subarray;
 
+	process_grid_cols = (int)(sqrt(number_of_processes)); 
+	process_grid_rows = ceil(sqrt(number_of_processes)); //Prefer getting more process on rows to scale better
 
+    AUDIT{ 
+        printf("[INFO] Process grid is: %d %d\n",process_grid_rows,process_grid_cols);
+        puts("----------------------------------------------------------------");
+        for(int i = 0;i<process_grid_rows;++i){
+            printf("|");
+            for(int j = 0;j<process_grid_cols;++j){
+                printf("%d ",i*process_grid_cols+j);
+            }
+            puts("|");
+        }
+        puts("----------------------------------------------------------------");
+        fflush(stdout);
+    }
 
-    generate_block_cyclic_distribution_matrix_A(matrix_A_file_name, rows, cols, BLOCK_ROWS, BLOCK_COLS,process_grid_rows,process_grid_cols,my_rank,comm);
+    matrix_sizes = compute_submatrix_dimension(N, K, BLOCK_ROWS, BLOCK_COLS, process_grid_rows, process_grid_cols, my_rank);
+
+    N_subarray = matrix_sizes->rows;
+    K_subarray = matrix_sizes->cols;
+    M_subarray = M;
+
     
-    //generate_rows_cyclyc_distribution(matrix_B_file_name, rows, cols, BLOCK_ROWS, process_grid_rows, my_rank, comm);    
+    matrix_A_subarray = (double *)malloc(N_subarray * K_subarray * sizeof(double)); 
+    matrix_B_subarray = (double *)malloc(K_subarray * M_subarray * sizeof(double));
+    matrix_C_subarray = (double *)malloc(N_subarray * M_subarray * sizeof(double));
+
+    matrix_C_subarray_rows = (double *)malloc(N_subarray * M_subarray * sizeof(double));
+
+    memset(matrix_C_subarray,0,N_subarray * M_subarray * sizeof(double));
+
+    generate_block_cyclic_distribution_matrix_A(matrix_A_file_name,&matrix_A_subarray ,N, K, N_subarray, K_subarray,BLOCK_ROWS, BLOCK_COLS,process_grid_rows,process_grid_cols,my_rank,comm);
+
+    generate_rows_distribution(matrix_B_file_name,&matrix_B_subarray, K, M, K_subarray , M_subarray, BLOCK_ROWS, process_grid_cols, my_rank,comm);
+
+    multiplyMatrices(matrix_A_subarray,matrix_B_subarray,&matrix_C_subarray, N_subarray, K_subarray ,M_subarray,my_rank);
+
+    send_matrix_to_root(matrix_C_subarray, &matrix_C_subarray_rows,N_subarray, M_subarray, my_rank, process_grid_rows, process_grid_cols, comm);
+
+
+    /* Now, we have to sum C_temp (A x B) to C, in order to get the final result.
+    *  To do that, we distribute the rows of both matrices between all the processes. */
+
+    MPI_Barrier(comm);
+
+   //matrix_sizes = compute_submatrix_dimension(N, M, BLOCK_ROWS, M,process_grid_rows, process_grid_cols, my_rank);
+
     
+
+    matrix_C_subarray_from_file = (double *)malloc(N_subarray * M_subarray * sizeof(double));
+    generate_rows_distribution(matrix_C_file_name,&matrix_C_subarray_from_file, N, M, N_subarray , M_subarray, BLOCK_ROWS, process_grid_cols, my_rank,comm);
+    
+    MPI_Barrier(comm);
+
+
+    if (my_rank % process_grid_cols == 0) {
+        /* C + A x B */
+        for (int i = 0; i < N_subarray * M_subarray; ++i) {
+            matrix_C_subarray_rows[i] += matrix_C_subarray_from_file[i];
+        }
+    }
+
+    MPI_Barrier(comm);
+
+    MPI_Comm root_comm;
+    MPI_Comm_split(comm, my_rank % process_grid_cols, my_rank, &root_comm);
+
+    int root_rank;
+    MPI_Comm_rank(root_comm, &root_rank);
+
+     /* Write result on file */
+    if (my_rank % process_grid_cols == 0) {
+        char file_name[128];
+        sprintf(file_name, "../../data/matrix%dx%d/matrix_C_mpi_%dx%d.bin",N,M,N,M);
+        write_result_to_file(file_name, matrix_C_subarray_rows, N_subarray * M_subarray, my_rank, N, M, BLOCK_ROWS, process_grid_rows, process_grid_cols, root_comm);
+    }
 
 }
 
 
 
 int main(int argc, char *argv[]){
-	size_t rows = 0;
-    size_t cols = 0;
+	int N = 0;
+    int K = 0;
+    int M = 0;
     clock_t read_start, read_end, computation_start, computation_end;
 	double cpu_time_used;
 	double total_time = 0.0;
@@ -438,24 +484,30 @@ int main(int argc, char *argv[]){
 
 
     MPI_Init(&argc, &argv);
-    MPI_Comm_dup(MPI_COMM_WORLD, &comm); //Get private comunicator
+    MPI_Comm_dup(MPI_COMM_WORLD, &comm); //Get private communicator
 
     MPI_Comm_size(comm, &number_of_processes); //Initialize number of process
     MPI_Comm_rank(comm, &my_rank); //Initialize rank (process_id - PID)
 
 
-	if(argc != 3){
+	if(argc != 4){
         logger_error("Program should be called like ./<elf file name> <# rows> <# cols> ");
         exit(EXIT_FAILURE);
     }
 
-    if (sscanf (argv[1], "%ld", &rows) != 1) {
+    if (sscanf (argv[1], "%d", &N) != 1) {
         fprintf(stderr, "[ERROR] - not an integer");
         logger_error("Program should be called like ./<elf file name> <# rows> <# cols>");
         exit(EXIT_FAILURE);
     }
 
-    if (sscanf (argv[2], "%ld", &cols) != 1) {
+    if (sscanf (argv[2], "%d", &K) != 1) {
+        fprintf(stderr, "[ERROR] - not an integer");
+        logger_error("Program should be called like ./<elf file name> <# rows> <# cols>");
+        exit(EXIT_FAILURE);
+    }
+
+    if (sscanf (argv[3], "%d", &M) != 1) {
         fprintf(stderr, "[ERROR] - not an integer");
         logger_error("Program should be called like ./<elf file name> <# rows> <# cols>");
         exit(EXIT_FAILURE);
@@ -464,16 +516,17 @@ int main(int argc, char *argv[]){
     memset(matrix_A_file_name,0,64);
     memset(matrix_B_file_name,0,64);
     memset(matrix_C_file_name,0,64);
-    sprintf(matrix_A_file_name,"src/data/matrix%lux%lu/matrix_A_%lux%lu.bin", rows, cols, rows, cols);
-    sprintf(matrix_B_file_name,"src/data/matrix%lux%lu/matrix_B_%lux%lu.bin",rows, cols, rows, cols);
-    sprintf(matrix_C_file_name,"src/data/matrix%lux%lu/matrix_C_%lux%lu.bin",rows, cols, rows, cols);
+    sprintf(matrix_A_file_name,"../../data/matrix%dx%d/matrix_A_%dx%d.bin", N, K, N, K);
+    sprintf(matrix_B_file_name,"../../data/matrix%dx%d/matrix_B_%dx%d.bin",K, M, K, M);
+    sprintf(matrix_C_file_name,"../../data/matrix%dx%d/matrix_C_%dx%d.bin",N, M, N, M);
 
     AUDIT{
         puts("");
 	    puts("---------------------------------------------------------------------------[START]---------------------------------------------------------------------------");
     	memset(logger_message,0,LOG_MESSAGE_SIZE);
-	    sprintf(logger_message,"Starting process parallel computation (MPI) for matrix %ld x %ld",rows,cols);
+	    sprintf(logger_message,"Starting process parallel computation (MPI) for matrix %d x %d",N,M);
 	    logger_info(logger_message);
+        fflush(stdout);
     }
 
 
@@ -483,8 +536,9 @@ int main(int argc, char *argv[]){
         matrix_A_file_name,
         matrix_B_file_name,
         matrix_C_file_name,
-        rows,
-        cols,
+        N,
+        K,
+        M,
         number_of_processes,
         my_rank,
         comm
@@ -508,7 +562,51 @@ int main(int argc, char *argv[]){
         logger_info(logger_message);
         puts("----------------------------------------------------------------------------[END]----------------------------------------------------------------------------");
         puts("");
+        fflush(stdout);
     }
+
+
+    AUDIT{
+        double *matrix_c_sequential;
+        double *mpi;
+        double diff = 0.0f;
+        double max_diff = 0.0f;
+        double max_rel_diff = 0.0f;
+
+        matrix_c_sequential = (double *)malloc(sizeof(double)*N*M);
+        mpi = (double *)malloc(sizeof(double)*N*M);
+
+        read_matrix_from_file(matrix_c_sequential,N,M,(char *)"sequential_C");
+        read_matrix_from_file_mpi(mpi,N,M,(char *)"C_mpi");
+        
+        print_matrix(matrix_c_sequential,N,M);
+        printf("\n\n\n\n");
+        fflush(stdout);
+        print_matrix(mpi,N,M);
+        fflush(stdout);
+
+
+        for(int i=0; i<N; ++i){
+            for(int j=0; j<M; ++j){
+                diff += abs(mpi[i*M+j] - matrix_c_sequential[i*M+j]);
+
+                max_diff = max( abs(mpi[i*M+j] - matrix_c_sequential[i*M+j]), max_diff);
+
+                max_rel_diff = max(  
+                    abs(mpi[i*M+j] - matrix_c_sequential[i*M+j]) /  max(mpi[i*M+j], matrix_c_sequential[i*M+j]), 
+                    max_rel_diff
+                    );
+            }
+        }
+
+        puts("");
+        printf("Diff is: %f\n",diff);
+        printf("Max diff is: %f\n",max_diff);
+        printf("Max rel diff is: %f\n",max_rel_diff);
+
+
+    }
+
 
     MPI_Finalize();
 
