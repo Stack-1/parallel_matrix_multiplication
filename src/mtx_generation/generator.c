@@ -71,7 +71,7 @@ int main(int argc, char *argv[]){
     // Generate matrix
     gettimeofday(&start, NULL);
     generate_real_value_matrix(matrix_A,N,K);
-    write_matrix_to_file(matrix_A,N,K,matrix_A_name,is_square);
+    write_matrix_to_file(matrix_A,N,K,M,N,K,matrix_A_name,is_square);
 	gettimeofday(&stop, NULL);
 	cpu_time_used_A = (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
 	total_time += cpu_time_used_A;
@@ -80,7 +80,7 @@ int main(int argc, char *argv[]){
 
     gettimeofday(&start, NULL);
     generate_real_value_matrix(matrix_B,K,M);
-    write_matrix_to_file(matrix_B,K,M,matrix_B_name,is_square);
+    write_matrix_to_file(matrix_B,N,K,M,K,M,matrix_B_name,is_square);
 	gettimeofday(&stop, NULL);
 	cpu_time_used_B = (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
 	total_time += cpu_time_used_B;
@@ -90,7 +90,7 @@ int main(int argc, char *argv[]){
 
     gettimeofday(&start, NULL);
     generate_real_value_matrix(matrix_C,N,M);
-    write_matrix_to_file(matrix_C,N,M,matrix_C_name,is_square);
+    write_matrix_to_file(matrix_C,N,K,M,N,M,matrix_C_name,is_square);
 	gettimeofday(&stop, NULL);
 	cpu_time_used_C = (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
 	total_time += cpu_time_used_C;

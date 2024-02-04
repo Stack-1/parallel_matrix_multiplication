@@ -27,6 +27,7 @@ FORMATTER_DIRECTORY = ${UTILS_DIRECTORY}/string_formatter
 	${CC} ${CFLAGS} generator.o random_generator.o file_io.o logger.o formatter.o -o ${OUTPUT_FILE}
 	@rm *.o
 
+
 generate_matrix: --random_matrix_generation
 	@./${OUTPUT_FILE} 100 100 100
 	@./${OUTPUT_FILE} 128 128 128

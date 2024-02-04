@@ -36,7 +36,7 @@ void print_matrix(float *matrix,int rows, int cols){
  * @param is_squared Treu if the matrix we are saving is part of the square matrices computation
  * @return Number of bytes written in file
 */
-int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name,bool is_square){
+int write_matrix_to_file(float *matrix, int N, int K, int M,int rows, int cols,char *matrix_name,bool is_square){
     int ret = 0;
     struct stat st;
     FILE *matrix_file;
@@ -54,9 +54,9 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name,bo
     }
 
     if(is_square){
-        sprintf(&(dir_name)[strlen(DATA_DIR)],"square/");
+        sprintf(&(dir_name)[strlen(dir_name)],"square/");
     }else{
-        sprintf(&(dir_name)[strlen(DATA_DIR)],"rectangular/");
+        sprintf(&(dir_name)[strlen(dir_name)],"rectangular/");
     }
 
     if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
@@ -66,7 +66,7 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name,bo
         logger_info(log_string);
     }
 
-    sprintf(&(dir_name)[strlen(dir_name)],"matrix%dx%d/",rows,cols);
+    sprintf(&(dir_name)[strlen(dir_name)],"matrix%dx%dx%d/",N,K,M);
 
     if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
         create_dir(dir_name,0770); 
@@ -131,7 +131,7 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name,bo
  * @param matrix_name The name of the matrix we want to save in file (A/B/C)
  * @param is_squared Treu if the matrix we are saving is part of the square matrices computation
 */
-void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, char *matrix_name,bool is_square){
+void read_matrix_from_file(float *matrix,int N, int K, int M,int rows_expected, int cols_expected, char *matrix_name,bool is_square){
     FILE *matrix_file;
     char file_name[64];
     char log_string[LOG_MESSAGE_SIZE];
@@ -147,7 +147,8 @@ void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, c
         sprintf(&(file_name)[strlen(file_name)],"rectangular/");
     }
 
-    sprintf(&(file_name)[strlen(file_name)],"matrix%dx%d/matrix_%s_%dx%d.bin",rows_expected,cols_expected,matrix_name,rows_expected,cols_expected);
+    sprintf(&(file_name)[strlen(file_name)],"matrix%dx%dx%d/matrix_%s_%dx%d.bin",N,K,M,matrix_name,rows_expected,cols_expected);
+    printf("%s\n",file_name);
 
     // Open or create file
 	if((matrix_file=fopen(file_name, "r"))==NULL) {
@@ -206,7 +207,7 @@ void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, c
  * @param matrix_name The name of the matrix we want to save in file (A/B/C)
  * @param is_squared Treu if the matrix we are saving is part of the square matrices computation
 */
-void read_matrix_from_file_mpi(float *matrix,int rows_expected, int cols_expected, char *matrix_name,bool is_square){
+void read_matrix_from_file_mpi(float *matrix,int N, int K, int M,int rows_expected, int cols_expected, char *matrix_name,bool is_square){
     FILE *matrix_file;
     char file_name[64];
     char log_string[LOG_MESSAGE_SIZE];
@@ -222,7 +223,7 @@ void read_matrix_from_file_mpi(float *matrix,int rows_expected, int cols_expecte
         sprintf(&(file_name)[strlen(file_name)],"rectangular/");
     }
 
-    sprintf(&(file_name)[strlen(file_name)],"matrix%dx%d/matrix_%s_%dx%d.bin",rows_expected,cols_expected,matrix_name,rows_expected,cols_expected);
+    sprintf(&(file_name)[strlen(file_name)],"matrix%dx%dx%d/matrix_%s_%dx%d.bin",N,K,M,matrix_name,rows_expected,cols_expected);
 
     // Open or create file
 	if((matrix_file=fopen(file_name, "r"))==NULL) {
@@ -340,10 +341,10 @@ void test(){
     puts("");
     print_matrix(matrix,rows,cols);
 
-    write_matrix_to_file(matrix, rows, cols,"A",true);
+    write_matrix_to_file(matrix,rows,rows,cols, rows, cols,"A",true);
 #endif
 
-    read_matrix_from_file(matrix_recv,rows,cols,(char *)"A",true);
+    read_matrix_from_file(matrix_recv,rows, rows, cols,rows,cols,(char *)"A",true);
 
     print_matrix(matrix_recv,rows,cols);
 }

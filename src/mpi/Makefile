@@ -33,14 +33,15 @@ all: process-parallel
 --mpi: --load_modules --logger_mpi --time_formatter_mpi --file_io_mpi
 	@echo
 	@echo "[INFO] Starting compilation for process parallel (MPI) code..."
+	$(MPI_CC) $(CFLAGS) -c c/mpi_matrix_distriibution.c -o mpi_matrix_distriibution.o 
 	$(MPI_CC) $(CFLAGS) -c c/mpi_computation.c -o mpi_computation.o 
-	${MPI_CC} ${CFLAGS} logger.o mpi_computation.o time_formatter.o file_io.o -o ${OUTPUT_FILE}
+	${MPI_CC} ${CFLAGS} logger.o mpi_computation.o mpi_matrix_distriibution.o time_formatter.o file_io.o -o ${OUTPUT_FILE}
 	@rm *.o
 	@echo "[INFO] Compilation completed succesfully!"
 	@echo
 
 process-parallel: --mpi
-	@mpirun -np ${PROCS} ./${OUTPUT_FILE} 256 64 256 3 2
+	@mpirun -np ${PROCS} ./${OUTPUT_FILE} 256 32 256 2 2
 
 	rm ${OUTPUT_FILE}
 

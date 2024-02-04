@@ -91,9 +91,9 @@ int main(int argc, char *argv[]){
 	// Getting data from previously generated file
 	gettimeofday(&start, NULL);
 
-	read_matrix_from_file(matrix_A,N,K,(char *)"A",is_square);
-	read_matrix_from_file(matrix_B,K,M,(char *)"B",is_square);
-	read_matrix_from_file(matrix_C,N,M,(char *)"C",is_square);
+	read_matrix_from_file(matrix_A,N,K,M,N,K,(char *)"A",is_square);
+	read_matrix_from_file(matrix_B,N,K,M,K,M,(char *)"B",is_square);
+	read_matrix_from_file(matrix_C,N,K,M,N,M,(char *)"C",is_square);
 	
 	gettimeofday(&stop, NULL);
 
@@ -142,7 +142,7 @@ int main(int argc, char *argv[]){
 
 	gettimeofday(&start, NULL);
 
-	write_matrix_to_file(matrix_C,N,M,(char *)"sequential_C",is_square);
+	write_matrix_to_file(matrix_C,N,K,M,N,M,(char *)"sequential_C",is_square);
 
 	gettimeofday(&stop, NULL);
 
