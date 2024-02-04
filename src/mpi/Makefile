@@ -40,7 +40,7 @@ all: process-parallel
 	@echo
 
 process-parallel: --mpi
-	@mpirun -np ${PROCS} ./${OUTPUT_FILE} 16 16 16
+	@mpirun -np ${PROCS} ./${OUTPUT_FILE} 256 64 256 3 2
 
 	rm ${OUTPUT_FILE}
 

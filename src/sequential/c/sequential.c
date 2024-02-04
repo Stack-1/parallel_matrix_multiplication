@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <stdlib.h>
-#include <time.h>
+#include <sys/time.h>
 #include <string.h>
+#include <stdbool.h>
 #include "../..//utils/file_io/stackio.h"
 #include "../../utils/logger/logger.h"
 #include "../../utils/string_formatter/formatter.h"
@@ -11,11 +12,15 @@
 #define LOG_MESSAGE_SIZE 256
 #endif
 
-void compute_sequential_matrix_by_matrix_multiplication(double *matrix_A,double *matrix_B,double *matrix_C,int N,int K, int M){
-	for (int i=0; i<N; ++i){ 
-        for(int k=0; k<K; ++k) {
-            for(int j=0; j<M; ++j){    
-                matrix_C[i * M + j] = matrix_C[i * M + j] + matrix_A[i * K + k] * matrix_B[k * M + j];
+#ifndef FORMATTED_STRING_SIZE
+#define FORMATTED_STRING_SIZE 64
+#endif
+
+void compute_sequential_matrix_by_matrix_multiplication(float *matrix_A,float *matrix_B,float *matrix_C,int N,int K, int M){  
+	for(int i=0; i<N; ++i){
+		for(int k=0; k<K; ++k){
+			for(int j=0; j<M; ++j){ 
+                matrix_C[i * M + j] += matrix_A[i * K + k] * matrix_B[k * M + j];
 			}
     	}
 	}
@@ -25,12 +30,18 @@ int main(int argc, char *argv[]){
 	int N = 0;
     int K = 0;
 	int M = 0;
-    clock_t read_start, read_end, computation_start, computation_end;
-	double cpu_time_used;
-	double total_time = 0.0;
-	char logger_message[LOG_MESSAGE_SIZE];
-	char formatted_string[64];
 
+	struct timeval stop, start;	
+	double total_time = 0.0;
+	double read_from_file_time = 0.0;
+	double computation_time = 0.0;
+	double write_to_file_time = 0.0;
+
+
+	char logger_message[LOG_MESSAGE_SIZE];
+	char formatted_string[FORMATTED_STRING_SIZE];
+	bool is_square;
+	double gflops;
     
 	if(argc != 4){
         logger_error("Program should be called like ./<elf file name> <N> <K> <M>");
@@ -55,9 +66,11 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
 
-	double *matrix_A;
-	double *matrix_B;
-	double *matrix_C;
+	is_square = (N==K && K==M) ? true : false;
+
+	float *matrix_A;
+	float *matrix_B;
+	float *matrix_C;
 
     puts("");
 	puts("---------------------------------------------------------------------------[START]---------------------------------------------------------------------------");
@@ -67,24 +80,27 @@ int main(int argc, char *argv[]){
 	sprintf(logger_message,"Starting sequential computation for matrix %d x %d",N,M);
 	logger_info(logger_message);
 
-	matrix_A = (double *)malloc(N*K*sizeof(double));
-	matrix_B = (double *)malloc(K*M*sizeof(double));
-	matrix_C = (double *)malloc(N*M*sizeof(double));
+	matrix_A = (float *)malloc(N*K*sizeof(float));
+	matrix_B = (float *)malloc(K*M*sizeof(float));
+	matrix_C = (float *)malloc(N*M*sizeof(float));
 	
 
 	logger_info("Matrix memory correctly allocated on HOST");
 
 
 	// Getting data from previously generated file
-	read_start = clock();
-	read_matrix_from_file(matrix_A,N,K,(char *)"A");
-	read_matrix_from_file(matrix_B,K,M,(char *)"B");
-	read_matrix_from_file(matrix_C,N,M,(char *)"C");
-	read_end = clock();
-	cpu_time_used = ((double) (read_end - read_start)) / CLOCKS_PER_SEC;
-	total_time += cpu_time_used;
+	gettimeofday(&start, NULL);
 
-	getFormattedTime(cpu_time_used,(char *)formatted_string);
+	read_matrix_from_file(matrix_A,N,K,(char *)"A",is_square);
+	read_matrix_from_file(matrix_B,K,M,(char *)"B",is_square);
+	read_matrix_from_file(matrix_C,N,M,(char *)"C",is_square);
+	
+	gettimeofday(&stop, NULL);
+
+	read_from_file_time = (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
+	total_time += read_from_file_time;
+
+	getFormattedTime(read_from_file_time,(char *)formatted_string);
 	memset(logger_message,0,LOG_MESSAGE_SIZE);
 	sprintf(logger_message,"Reading matrix A,B and C from memory ended in %s",formatted_string);
 	logger_info(logger_message);
@@ -103,14 +119,17 @@ int main(int argc, char *argv[]){
 #endif
 
 	
-	computation_start = clock();
-	compute_sequential_matrix_by_matrix_multiplication(matrix_A,matrix_B,matrix_C,N,K,M);
-	computation_end = clock();
-	cpu_time_used = ((double) (computation_end - computation_start)) / CLOCKS_PER_SEC;
-	total_time += cpu_time_used;
+	gettimeofday(&start, NULL);
 
-	memset(formatted_string,0,64);
-	getFormattedTime(cpu_time_used,(char *)formatted_string);
+	compute_sequential_matrix_by_matrix_multiplication(matrix_A,matrix_B,matrix_C,N,K,M);
+	
+	gettimeofday(&stop, NULL);
+
+	computation_time = (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
+	total_time += computation_time;
+
+	memset(formatted_string,0,FORMATTED_STRING_SIZE);
+	getFormattedTime(computation_time,(char *)formatted_string);
 
 	memset(logger_message,0,LOG_MESSAGE_SIZE);
 	sprintf(logger_message,"Sequential computation ended in %s",formatted_string);
@@ -121,7 +140,20 @@ int main(int argc, char *argv[]){
 		print_matrix(matrix_C,N,M);
 #endif
 
-	write_matrix_to_file(matrix_C,N,M,(char *)"sequential_C");
+	gettimeofday(&start, NULL);
+
+	write_matrix_to_file(matrix_C,N,M,(char *)"sequential_C",is_square);
+
+	gettimeofday(&stop, NULL);
+
+	write_to_file_time = (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
+	total_time += write_to_file_time;
+
+	float partial = (float)(2.0*N*K*M)/computation_time;
+	gflops = (double)( partial / 1000000000);
+
+	write_sequential_computation_csv(N,K,M,read_from_file_time,computation_time,write_to_file_time,gflops);
+
 
 	memset(logger_message,0,LOG_MESSAGE_SIZE);
 	sprintf(logger_message,"Computation + I/O time: %f\n",total_time);

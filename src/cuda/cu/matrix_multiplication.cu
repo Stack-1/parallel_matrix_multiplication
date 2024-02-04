@@ -390,7 +390,7 @@ int main(int argc, char** argv) {
   CpuMatrixVector(h_A, h_B, h_C_result_host, N, K ,M);
 
   timer->stop();
-  float cpuflops=flopcnt/ timer->getTime();
+  double cpuflops=flopcnt/ timer->getTime();
   std::cout << "  CPU time: " << timer->getTime() << " ms." << " MFLOPS " << cpuflops << std::endl;
 
   puts("\t[RESULT] Sequential result");
@@ -414,7 +414,7 @@ int main(int argc, char** argv) {
   std::cout << "Time to generate: " << time << " ms\n";
 
 
-  float gpuflops=flopcnt/ time;
+  double gpuflops=flopcnt/ time;
   memset(formatted_time_string, 0, strlen(formatted_time_string));
   getFormattedTime(time/1000.0f,formatted_time_string);
   std::cout << "  GPU time: " << formatted_time_string << " MFLOPS " << gpuflops<<std::endl;
