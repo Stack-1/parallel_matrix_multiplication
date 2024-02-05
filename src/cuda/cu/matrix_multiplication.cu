@@ -74,35 +74,55 @@ static int create_dir(char *rel_path,mode_t mode) {
   return mkdir(rel_path, mode);
 }
 
-// Return bytes written in file
-int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
+/**
+ * @brief Utitliy function used to write generated matrices to file
+ * @param matrix The matrix to be written to file
+ * @param rows Number of rows of the matrix
+ * @param cols Number of columns of the matrix
+ * @param matrix_name The name of the matrix we want to save in file (A/B/C)
+ * @param is_squared Treu if the matrix we are saving is part of the square matrices computation
+ * @return Number of bytes written in file
+*/
+int write_matrix_to_file(float *matrix, int N, int K, int M,int rows, int cols,char *matrix_name,bool is_square){
     int ret = 0;
     struct stat st;
-    //mode_t mode = st.st_mode & (S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP);
     FILE *matrix_file;
-    char file_name[63];
-    char dir_name[32]; 
+    char file_name[64];
+    char dir_name[64]; 
     char log_string[LOG_MESSAGE_SIZE];
 
     sprintf(dir_name,DATA_DIR);
 
     if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
-        create_dir(dir_name,0770); // TODO: Check for the right parametric bitmask
+        create_dir(dir_name,0770); 
         memset(log_string,0,LOG_MESSAGE_SIZE);
         sprintf(log_string,"Created data directory, with permissions: -rw-r--r-- %s\n",dir_name);
         logger_info(log_string);
     }
 
-    sprintf(&(dir_name)[strlen(dir_name)],"square/matrix%dx%dx%d/",rows,cols,cols);
+    if(is_square){
+        sprintf(&(dir_name)[strlen(dir_name)],"square/");
+    }else{
+        sprintf(&(dir_name)[strlen(dir_name)],"rectangular/");
+    }
 
     if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
-        create_dir(dir_name,0770); // TODO: Check for the right parametric bitmask
+        create_dir(dir_name,0770); 
         memset(log_string,0,LOG_MESSAGE_SIZE);
         sprintf(log_string,"Created data directory, with permissions: -rw-r--r-- %s\n",dir_name);
         logger_info(log_string);
     }
 
-    sprintf(file_name,dir_name);
+    sprintf(&(dir_name)[strlen(dir_name)],"matrix%dx%dx%d/",N,K,M);
+
+    if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
+        create_dir(dir_name,0770); 
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Created data directory, with permissions: -rw-r--r-- %s\n",dir_name);
+        logger_info(log_string);
+    }
+
+    memcpy(file_name,dir_name,strlen(dir_name));
 
     sprintf(&(file_name)[strlen(dir_name)],"matrix_%s_%dx%d.bin",matrix_name,rows,cols);
 
@@ -150,26 +170,40 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
 
     return sizeof(float)*cols*rows + sizeof(int) + sizeof(int);
 }
-
-
-void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, char *matrix_name){
+/**
+ * @brief Utitliy function used to read generated matrices from file
+ * @param matrix The matrix to be read from file
+ * @param rows_expected Number of rows of the matrix
+ * @param cols_expected Number of columns of the matrix
+ * @param matrix_name The name of the matrix we want to save in file (A/B/C)
+ * @param is_squared Treu if the matrix we are saving is part of the square matrices computation
+*/
+void read_matrix_from_file(float *matrix,int N, int K, int M,int rows_expected, int cols_expected, char *matrix_name,bool is_square){
     FILE *matrix_file;
     char file_name[64];
     char log_string[LOG_MESSAGE_SIZE];
-    int rows;
-    int cols;
+    int rows = 0;
+    int cols = 0;
     int ret = 0;
 
     sprintf(file_name,DATA_DIR);
-    sprintf(&(file_name)[strlen(file_name)],"square/matrix%dx%dx%d/matrix_%s_%dx%d.bin",rows_expected,rows_expected,cols_expected,matrix_name,rows_expected,cols_expected);
+
+    if(is_square){
+        sprintf(&(file_name)[strlen(file_name)],"square/");
+    }else{
+        sprintf(&(file_name)[strlen(file_name)],"rectangular/");
+    }
+
+    sprintf(&(file_name)[strlen(file_name)],"matrix%dx%dx%d/matrix_%s_%dx%d.bin",N,K,M,matrix_name,rows_expected,cols_expected);
+    printf("%s\n",file_name);
 
     // Open or create file
-	  if((matrix_file=fopen(file_name, "r"))==NULL) {
+	if((matrix_file=fopen(file_name, "r"))==NULL) {
         memset(log_string,0,LOG_MESSAGE_SIZE);
         sprintf(log_string,"Error opening file %s\n",file_name);
-		  logger_error(log_string);
-		  exit(EXIT_FAILURE);
-	  }
+		logger_error(log_string);
+		exit(EXIT_FAILURE);
+	}
 
     // Read rows number as first element of the binary file
     ret = fread(&rows,sizeof(int),1,matrix_file);
@@ -301,17 +335,17 @@ __global__ void gpuMatrixVectorSharedMemory(float* A, float* B, float* C, int N,
     int tx = threadIdx.x;
     int ty = threadIdx.y;
     float sum = 0;
-    int num_blocks = (int) (N/BLOCK_SIZE)
+    int num_blocks = (int) (N/BLOCK_SIZE);
 
     for(int i=0; i<num_blocks; ++i)
     {
         // Load data in the tile of shared memory
-        if(row<M && t*BLOCK_SIZE+tx<N)
+        if(row<M && i*BLOCK_SIZE+tx<N)
             matrix_A_shared[ty][tx] = A[row*N + i*BLOCK_SIZE+tx];
         else
             matrix_A_shared[ty][tx] = 0.0;
         if(i*BLOCK_SIZE+ty<N && col<K)
-            matrix_B_shared[ty][tx] = B[(t*BLOCK_SIZE+ty)*K + col];
+            matrix_B_shared[ty][tx] = B[(i*BLOCK_SIZE+ty)*K + col];
         else
             matrix_B_shared[ty][tx] = 0.0;
         __syncthreads();
@@ -382,17 +416,21 @@ int main(int argc, char** argv) {
   float time;
   char formatted_time_string[64];
   cudaEvent_t start, stop;
+  bool isSquare = (N==K && K==M) ? true : false;
 
   dim3 blockDim(BLOCK_SIZE,BLOCK_SIZE); // Don't need to write z = 1, max 1024
   int gx = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;//(m % blockDim.x==0) ? m / blockDim.x : m / blockDim.x + 1;
   int gy = (M + BLOCK_SIZE - 1) / BLOCK_SIZE;//(n % blockDim.y==0) ? n / blockDim.y : n / blockDim.y + 1;
   dim3 gridDim(gx, gy);
-  printf("%d %d\n",gx,gy);
 
-  read_matrix_from_file(h_A,N,K,(char *)"A");
-  read_matrix_from_file(h_B,K,M,(char *)"B");
-  read_matrix_from_file(h_C,N,M,(char *)"C");
-  read_matrix_from_file(h_C_result_host,N,M,(char *)"sequential_C");
+    cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start, 0);
+
+  read_matrix_from_file(h_A,N,K,M,N,K,(char *)"A",isSquare);
+  read_matrix_from_file(h_B,N,K,M,K,M,(char *)"B",isSquare);
+  read_matrix_from_file(h_C,N,K,M,N,M,(char *)"C",isSquare);
+  read_matrix_from_file(h_C_result_host,N,K,M,N,M,(char *)"sequential_C",isSquare);
 
   std::cout << "[INFO] Matrix initialization done.\n";
 
@@ -439,12 +477,10 @@ int main(int argc, char** argv) {
 
 // ------------------------ Calculations on the GPU ------------------------- //
   
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
-  cudaEventRecord(start, 0);
 
 
-  gpuMatrixVector<<<gridDim, blockDim >>>(d_A, d_B, d_C, N, K, M);
+
+  gpuMatrixVectorSharedMemory<<<gridDim, blockDim >>>(d_A, d_B, d_C, N, K, M);
   checkCudaErrors(cudaDeviceSynchronize());
 
   cudaEventRecord(stop, 0);
@@ -453,11 +489,16 @@ int main(int argc, char** argv) {
 
   std::cout << "Time to generate: " << time << " ms\n";
 
-
+  time = time/1000.0f; // Convert to seconds
   double gpuflops= 2.0*N*K*M / time;
   memset(formatted_time_string, 0, strlen(formatted_time_string));
-  getFormattedTime(time/1000.0f,formatted_time_string);
-  std::cout << "  GPU time: " << formatted_time_string << " MFLOPS " << gpuflops<<std::endl;
+  getFormattedTime(time,formatted_time_string);
+
+  float gflops = 0.0f;
+  float partial = (time != 0.0f) ? (float)(2.0*N*K*M)/time : (float)(2.0*N*K*M)/0.0000000001;
+	gflops = (float)( partial / 1000000000);
+
+  std::cout << "  GPU time: " << formatted_time_string << " GFLOPS " << gpuflops<<std::endl;
 
   // Download the resulting vector d_y from the device and store it in h_y_d.
   checkCudaErrors(cudaMemcpy(h_C_result_device, d_C, N * M * sizeof(float),cudaMemcpyDeviceToHost));
@@ -481,13 +522,16 @@ int main(int argc, char** argv) {
     }
   }
   std::cout << "Max diff =  " << diff << "  Max rel diff = " << reldiff << std::endl;
+  
   fflush(stdout);
+
+
   write_cuda_stats(N, K, M,time,diff,reldiff,gflops);
 
 
 // ------------------------------- Cleaning up ------------------------------ //
 
-  write_matrix_to_file(h_C_result_device,N,M,(char *)"cuda_C");
+  write_matrix_to_file(h_C_result_device,N,K,M,N,M,(char *)"cuda_C",isSquare);
 #ifdef DEBUG
   delete timer;
 #endif
