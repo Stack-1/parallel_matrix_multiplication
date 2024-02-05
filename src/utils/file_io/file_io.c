@@ -316,6 +316,37 @@ void write_sequential_computation_csv(int N,int K,int M,double read_time, double
 }
 
 
+void write_mpi_stats(int N, int K, int M,double total_time,float max_diff,float max_rel_diff,float gflops){
+    int ret = 0;
+    struct stat st;
+    FILE *matrix_file;
+    char *file_name = (char *)"data/stats.csv";
+    char *dir_name = (char *)"data/"; 
+    char log_string[LOG_MESSAGE_SIZE];
+
+    // Create directory if needed
+    if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
+        create_dir(dir_name,0770); 
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Created data directory, with permissions: -rw-r--r-- %s\n",dir_name);
+        logger_info(log_string);
+    }
+
+
+    // Open or create file
+	if((matrix_file=fopen(file_name, "a"))==NULL) {
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Error opening file %s\n",file_name);
+		logger_info(log_string);
+		exit(EXIT_FAILURE);
+	}
+
+    fprintf(matrix_file,"%d,%d,%d,%f,%f,%f,%f\n",N,K,M,total_time,max_diff,max_rel_diff,gflops);
+
+    fclose(matrix_file);
+}
+
+
 
 
 

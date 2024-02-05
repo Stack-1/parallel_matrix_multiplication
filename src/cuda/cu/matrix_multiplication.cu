@@ -74,19 +74,6 @@ static int create_dir(char *rel_path,mode_t mode) {
   return mkdir(rel_path, mode);
 }
 
-
-void print_matrix(float *matrix,int rows, int cols){
-    for(int i = 0;i<rows;i++){
-        for(int j = 0;j<cols;j++){
-            printf("%f ",matrix[i*cols + j]);
-        }
-        puts("");
-    }
-}
-
-
-
-
 // Return bytes written in file
 int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
     int ret = 0;
@@ -106,7 +93,7 @@ int write_matrix_to_file(float *matrix, int rows, int cols, char *matrix_name){
         logger_info(log_string);
     }
 
-    sprintf(&(dir_name)[strlen(DATA_DIR)],"matrix%dx%d/",rows,cols);
+    sprintf(&(dir_name)[strlen(dir_name)],"square/matrix%dx%dx%d/",rows,cols,cols);
 
     if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
         create_dir(dir_name,0770); // TODO: Check for the right parametric bitmask
@@ -174,7 +161,7 @@ void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, c
     int ret = 0;
 
     sprintf(file_name,DATA_DIR);
-    sprintf(&(file_name)[strlen(DATA_DIR)],"matrix%dx%d/matrix_%s_%dx%d.bin",rows_expected,cols_expected,matrix_name,rows_expected,cols_expected);
+    sprintf(&(file_name)[strlen(file_name)],"square/matrix%dx%dx%d/matrix_%s_%dx%d.bin",rows_expected,rows_expected,cols_expected,matrix_name,rows_expected,cols_expected);
 
     // Open or create file
 	  if((matrix_file=fopen(file_name, "r"))==NULL) {
@@ -221,6 +208,38 @@ void read_matrix_from_file(float *matrix,int rows_expected, int cols_expected, c
 
     fclose(matrix_file);
 }
+
+
+void write_cuda_stats(int N, int K, int M,double total_time,float max_diff,float max_rel_diff,float gflops){
+    int ret = 0;
+    struct stat st;
+    FILE *matrix_file;
+    char *file_name = (char *)"data/stats.csv";
+    char *dir_name = (char *)"data/"; 
+    char log_string[LOG_MESSAGE_SIZE];
+
+    // Create directory if needed
+    if ((ret = stat(dir_name, &st)) == -1) { // If directory not found
+        create_dir(dir_name,0770); 
+        memset(log_string,0,LOG_MESSAGE_SIZE);
+        sprintf(log_string,"Created data directory, with permissions: -rw-r--r-- %s\n",dir_name);
+        logger_info(log_string);
+    }
+
+
+    // Open or create file
+	  if((matrix_file=fopen(file_name, "a"))==NULL) {
+      memset(log_string,0,LOG_MESSAGE_SIZE);
+      sprintf(log_string,"Error opening file %s\n",file_name);
+		  logger_info(log_string);
+		  exit(EXIT_FAILURE);
+	  } 
+
+    fprintf(matrix_file,"%d,%d,%d,%f,%f,%f,%f\n",N,K,M,total_time,max_diff,max_rel_diff,gflops);
+
+    fclose(matrix_file);
+}
+
 
 #ifdef DEBUG
 
@@ -272,15 +291,43 @@ void CpuMatrixVector(float *matrix_A, float *matrix_B, float *matrix_C, int N, i
 }
 #endif
 
-/**
- * @brief 
- * @param
- * @param
- * @param
- * @param
- * @param
- * @param
-*/
+
+__global__ void gpuMatrixVectorSharedMemory(float* A, float* B, float* C, int N, int K, int M)
+{
+    __shared__ float matrix_A_shared[BLOCK_SIZE][BLOCK_SIZE]; // Memory in which is stored the matrix A shared between all the threads in the tile
+    __shared__ float matrix_B_shared[BLOCK_SIZE][BLOCK_SIZE];
+    int col = blockIdx.x*blockDim.x + threadIdx.x;
+    int row = blockIdx.y*blockDim.y + threadIdx.y;
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+    float sum = 0;
+    int num_blocks = (int) (N/BLOCK_SIZE)
+
+    for(int i=0; i<num_blocks; ++i)
+    {
+        // Load data in the tile of shared memory
+        if(row<M && t*BLOCK_SIZE+tx<N)
+            matrix_A_shared[ty][tx] = A[row*N + i*BLOCK_SIZE+tx];
+        else
+            matrix_A_shared[ty][tx] = 0.0;
+        if(i*BLOCK_SIZE+ty<N && col<K)
+            matrix_B_shared[ty][tx] = B[(t*BLOCK_SIZE+ty)*K + col];
+        else
+            matrix_B_shared[ty][tx] = 0.0;
+        __syncthreads();
+
+        // Actual computation over the single tile
+        for(int j=0; j<BLOCK_SIZE; ++j)
+            sum += matrix_A_shared[ty][j] * matrix_B_shared[j][tx];
+        __syncthreads();
+    }
+    if(row<M && col<K)
+        C[col+row*K] += sum;
+
+}
+
+
+
 __global__ void gpuMatrixVector(float* A, float* B, float* C, int N, int K, int M)
 {
   int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -294,11 +341,6 @@ __global__ void gpuMatrixVector(float* A, float* B, float* C, int N, int K, int 
 
 }
 
-/**
- * @brief
- * @param
- * @param
-*/
 int main(int argc, char** argv) {
   int N = 0;
   int K = 0;
@@ -330,8 +372,6 @@ int main(int argc, char** argv) {
 
   
   // ----------------------- Host memory initialisation ----------------------- //
-  float flopcnt=2.e-3*N*M;
-
   float* h_A = new float[N * K];
   float* h_B = new float[K * M];
   float* h_C = new float[N * M];
@@ -414,7 +454,7 @@ int main(int argc, char** argv) {
   std::cout << "Time to generate: " << time << " ms\n";
 
 
-  double gpuflops=flopcnt/ time;
+  double gpuflops= 2.0*N*K*M / time;
   memset(formatted_time_string, 0, strlen(formatted_time_string));
   getFormattedTime(time/1000.0f,formatted_time_string);
   std::cout << "  GPU time: " << formatted_time_string << " MFLOPS " << gpuflops<<std::endl;
@@ -442,11 +482,8 @@ int main(int argc, char** argv) {
   }
   std::cout << "Max diff =  " << diff << "  Max rel diff = " << reldiff << std::endl;
   fflush(stdout);
+  write_cuda_stats(N, K, M,time,diff,reldiff,gflops);
 
-  // Rel diff should be as close as possible to unit roundoff; float
-  // corresponds to IEEE single precision, so unit roundoff is
-  // 1.19e-07
-  // 
 
 // ------------------------------- Cleaning up ------------------------------ //
 

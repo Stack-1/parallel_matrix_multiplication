@@ -2,4 +2,3 @@
 data/
 *.out
 *.o
-src/mtx_generation/data/

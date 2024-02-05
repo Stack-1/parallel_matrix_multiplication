@@ -1,91 +1,94 @@
 #include "mpi_computation.h"
 
-
-void write_result_to_file(char *filename, float *result, int result_len, int rank, int matrix_rows, int matrix_cols, int block_rows, int proc_rows, int proc_cols, MPI_Comm comm) {
+/**
+ * @brief Function that has the responsability to write the result of the MPI computation on file.
+ * To be sure that each process writes the right part of the file, we define a new datatype, specifying
+ * MPI_DISTRIBUTE_CYCLIC to be coherent with the block cyclic distribution scheme used so far.
+ * @param matrix_file_name Name of the file in which we want to write the final computatation of C
+ * @param matrix The sub-matrix of C containing the values we want to save
+ * @param sub_matrix_size The size of the sub-matrix of C we want to save on file
+ * @param matrix_rows matrix dimension on y axis
+ * @param matrix_cols matrix dimension on x axis
+ * @param block_rows Dimension of block on y axis
+ * @param process_grid_rows Dimension of the process grid on the y axis
+ * @param process_grid_cols Dimension of the process grid on the x axis
+ * @param my_rank ID of the current process (PID)
+ * @param comm MPI private comunicator used in thi kernel of computation
+*/
+void write_result_to_file(
+        char *matrix_file_name, 
+        float *matrix, 
+        int sub_matrix_size,  
+        int matrix_rows, 
+        int matrix_cols, 
+        int block_rows, 
+        int process_grid_rows, 
+        int process_grid_cols, 
+        int my_rank,
+        MPI_Comm comm) {
     
     MPI_Datatype filetype;
     MPI_File file;
 
     MPI_Status status;
 
-    int rank_norm = rank / proc_cols;
-    int gsizes[2], distribs[2], dargs[2], psizes[2];
+    int raws_index = my_rank / process_grid_cols;
 
-    gsizes[0] = matrix_rows; /* rows of the original matrix */
-    gsizes[1] = matrix_cols; /* columns of the original matrix */
+    int gsizes[2] = {matrix_rows, matrix_cols};
+    int distribs[2] = {MPI_DISTRIBUTE_CYCLIC,MPI_DISTRIBUTE_CYCLIC};
+    int dargs[2] = {block_rows, matrix_cols}; // I want to have all the cols of the matrix, having only the correct rows 
+    int psizes[2] = {process_grid_rows,1}; // We want to divide the matrix only in one dimension, by rows
+    
 
-    /* block cyclic distribution */
-    distribs[0] = MPI_DISTRIBUTE_CYCLIC;
-    distribs[1] = MPI_DISTRIBUTE_CYCLIC;
-
-    dargs[0] = block_rows; /* rows of the block */
-    dargs[1] = matrix_cols; /* columns of the block */
-
-    psizes[0] = proc_rows; /* no. of processes in vertical dimension of process grid */
-    psizes[1] = 1; /* no. of processes in horizontal dimension of process grid (1, because every process in the same row gets the same rows of the original matrix) */
-
-    MPI_Type_create_darray(proc_rows, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
+    MPI_Type_create_darray(process_grid_rows, raws_index, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
     MPI_Type_commit(&filetype);
     
-    MPI_File_open(comm, filename, MPI_MODE_CREATE | MPI_MODE_RDWR, MPI_INFO_NULL, &file);
+    MPI_File_open(comm, matrix_file_name, MPI_MODE_CREATE | MPI_MODE_RDWR, MPI_INFO_NULL, &file);
 
     if (file == MPI_FILE_NULL) {
-        fprintf(stderr, "Error in opening file %s to write.\n",filename);
+        fprintf(stderr, "Error in opening file %s to write.\n",matrix_file_name);
         MPI_Abort(comm, 1);
     }
 
     MPI_File_set_view(file, 0, MPI_FLOAT, filetype, "native", MPI_INFO_NULL);
     
-    MPI_File_write_all(file, result, result_len, MPI_FLOAT, &status);
+    MPI_File_write_all(file, matrix, sub_matrix_size, MPI_FLOAT, &status);
 
     MPI_File_close(&file);
 }
 
-
-void reduce_partial_results(float *matrix, float **return_matrix, int num_rows, int num_cols, int my_rank, int proc_rows, int proc_cols, MPI_Comm comm) {
+/**
+ * @brief Function that has the responsability of putting toghether all the partial computation obtained 
+ * by each process on the same row of the process grid.
+ * @param matrix The sub-matrix containing the partial result of the computation
+ * @param return_matrix The address of the memory in which the reduction will be saved
+ * @param rows Number of rows of the sub-matrix
+ * @param cols Number of columns of the sub-matrix
+ * @param process_grid_cols Number of columnas of the process grid
+ * @param my_rank PID od the process running
+ * @param comm Communicator in use
+*/
+void reduce_partial_results(
+        float *matrix, 
+        float **return_matrix, 
+        int rows, 
+        int cols, 
+        int process_grid_cols,
+        int my_rank, 
+        MPI_Comm comm) {
     
-    //
-    //   E.g.: 
-    //        Process grid:
-    //        0 1 2 3 4
-    //        5 6 7 8 9
-//
-  //          the processes 0, 1, 2, 3, 4 will send their C_temp to process 0 (1/5 = 2/5 = 3/5 = 4/5 = 0)
-    //        the processes 5, 6, 7, 8, 9 will send their C_temp to process 1 (6/5 = 7/5 = 8/5 = 9/5 = 1)
-      //      the processes 0 and 5 are the receivers
-    
 
-    int row_index = my_rank / proc_cols;           // this is the index of the row of the process grid in which the current process is located
+    int row_index = my_rank / process_grid_cols;        
+    int my_group_rank;
 
-    // There will be a group for each row in the process grid (so, proc_rows groups).
-    //  We're gonna create a new communicator for each group, having color equals to the row index.
-    
     MPI_Comm group_comm;
-    MPI_Comm_split(comm, row_index, my_rank, &group_comm);    // the processes on the same row will be assigned to the same group
+    MPI_Comm_split(comm, row_index, my_rank, &group_comm); // Create communicator for the group
 
+    MPI_Reduce(matrix, *return_matrix, rows*cols, MPI_FLOAT, MPI_SUM, 0, group_comm); // Actual reduction
 
+    MPI_Barrier(group_comm);   
 
-    MPI_Reduce(matrix, *return_matrix, num_rows*num_cols, MPI_FLOAT, MPI_SUM, 0, group_comm);
-
-    MPI_Barrier(group_comm);    // sync barrier
-
-
-    int group_rank;
-    MPI_Comm_rank(group_comm, &group_rank);
-#ifdef DEBUG
-    if (group_rank == 0)  {
-        printf("\n[Process %d] Printing the resulting matrix C_temp (%dx%d)\n", my_rank, num_rows, num_cols);
-        for (int i = 0; i < num_rows; i++) {
-            puts("");
-            for (int j = 0; j < num_cols; j++) {
-                printf("%f ", (*return_matrix)[i*num_cols + j]);
-            }
-        }
-        puts("");
-        fflush(stdout);
-    }
-#endif
-
+    MPI_Comm_rank(group_comm, &my_group_rank);
 }
 
 
@@ -101,8 +104,8 @@ void reduce_partial_results(float *matrix, float **return_matrix, int num_rows, 
  * @param matrix_cols Number of columns of the matrix to be distributed
  * @param block_rows Number of rows of the block
  * @param block_cols Number of columns of the block
- * @param proc_rows Number of rows of the process grid
- * @param proc_cols Number of columns of the process grid
+ * @param process_gird_rows Number of rows of the process grid
+ * @param process_gird_cols Number of columns of the process grid
  * @return Number of floats the process should allocate to receive its portion of the matrix
 */
 computed_dimensions *compute_submatrix_dimension(
@@ -110,64 +113,67 @@ computed_dimensions *compute_submatrix_dimension(
         int matrix_cols, 
         int block_rows, 
         int block_cols, 
-        int proc_rows, 
-        int proc_cols, 
+        int process_grid_rows, 
+        int process_grid_cols, 
         int my_rank) {
 
-    int my_rank_coord_x, my_rank_coord_y;
+    int my_rank_coord_cols, my_rank_coord_rows;
     computed_dimensions *dimensions = (computed_dimensions *)malloc(sizeof(computed_dimensions));
 
-    my_rank_coord_x = my_rank / proc_cols; // 0
-    my_rank_coord_y = my_rank % proc_cols; // 0
+    my_rank_coord_cols = my_rank / process_grid_cols; 
+    my_rank_coord_rows = my_rank % process_grid_cols; 
 
 #ifdef DEBUG
     AUDIT
-        printf("[Process %d] my coordinates are (%d, %d)\n", my_rank, my_rank_coord_x, my_rank_coord_y);
+        printf("[Process %d] my coordinates are (%d, %d)\n", my_rank, my_rank_coord_cols, my_rank_coord_rows);
 #endif
 
-    /* COLS */
-    int tot_num_blocks = ceil( (float)matrix_cols / (float)block_cols); 
+    /* Compute for columns */
+    int blocks_on_dimension = ceil( (float)matrix_cols / (float)block_cols); 
 
-    int tot_blocks_assigned = tot_num_blocks / proc_cols; 
+    int block_per_process = blocks_on_dimension / process_grid_cols; 
 
-    if (tot_num_blocks % proc_cols != 0 && my_rank_coord_y < tot_num_blocks % proc_cols) {
-            tot_blocks_assigned++; 
+    if (blocks_on_dimension % process_grid_cols != 0 && my_rank_coord_rows < blocks_on_dimension % process_grid_cols) {
+            block_per_process++; 
     } 
 
-    /* assign last block portion */
+    /* Assign last block */
+    int block_per_process_on_cols = block_per_process * block_cols; 
 
-    int tot_nums_assigned_x = tot_blocks_assigned * block_cols; 
-
-    int last_process_x = tot_num_blocks % proc_cols == 0 ? proc_cols -1 : (tot_num_blocks % proc_cols) -1; // 1
-    if (my_rank_coord_y == last_process_x && matrix_cols % block_cols != 0) {
-        tot_nums_assigned_x -= (block_cols - (matrix_cols % block_cols));
+    int last_process_x = blocks_on_dimension % process_grid_cols == 0 ? process_grid_cols -1 : (blocks_on_dimension % process_grid_cols) -1; // 1
+    if (my_rank_coord_rows == last_process_x && matrix_cols % block_cols != 0) {
+        block_per_process_on_cols -= (block_cols - (matrix_cols % block_cols));
     }
 
-    /* ROWS */ 
-    tot_num_blocks = ceil((float)matrix_rows / (float)block_rows);    
+    /* Compute for rows */ 
+    blocks_on_dimension = ceil((float)matrix_rows / (float)block_rows);    
 
-    tot_blocks_assigned = tot_num_blocks / proc_rows;   
-    if (tot_num_blocks % proc_rows != 0 && my_rank_coord_x < tot_num_blocks % proc_rows) {
-            tot_blocks_assigned++;
+    block_per_process = blocks_on_dimension / process_grid_rows;   
+    if (blocks_on_dimension % process_grid_rows != 0 && my_rank_coord_cols < blocks_on_dimension % process_grid_rows) {
+            block_per_process++;
     } 
 
-    /* assign last block portion */
+    /* Assign last block */
+    int block_per_process_on_rows = block_per_process * block_rows; 
 
-    int tot_nums_assigned_y = tot_blocks_assigned * block_rows; // 42 * 3 = 
-
-    int last_process_y = ((tot_num_blocks % proc_rows) == 0) ? (proc_rows -1) : ((tot_num_blocks % proc_rows) -1);  // 2
-    if (my_rank_coord_x == last_process_y && matrix_rows % block_rows != 0) {
-        tot_nums_assigned_y -= (block_rows - (matrix_rows % block_rows));
+    int last_process_y = ((blocks_on_dimension % process_grid_rows) == 0) ? (process_grid_rows -1) : ((blocks_on_dimension % process_grid_rows) -1);  // 2
+    if (my_rank_coord_cols == last_process_y && matrix_rows % block_rows != 0) {
+        block_per_process_on_rows -= (block_rows - (matrix_rows % block_rows));
     }
+
+
+    dimensions->rows = block_per_process_on_rows;
+    dimensions->cols = block_per_process_on_cols;
+
+
 #ifdef DEBUG
-    printf("[Process %d] Assigned %d rows\n", my_rank, tot_nums_assigned_y);
-    printf("[Process %d] Assigned %d cols\n", my_rank, tot_nums_assigned_x);
-    printf("[Process %d] Assigned %d elements\n", my_rank, tot_nums_assigned_y * tot_nums_assigned_x);
+    printf("[Process %d] %d rows\n", my_rank, tot_nums_assigned_y);
+    printf("[Process %d] %d cols\n", my_rank, tot_nums_assigned_x);
+    printf("[Process %d] %d values\n", my_rank, tot_nums_assigned_y * tot_nums_assigned_x);
     puts("");
 #endif
 
-    dimensions->rows = tot_nums_assigned_y;
-    dimensions->cols = tot_nums_assigned_x;
+
     return dimensions;
 
 }
@@ -201,9 +207,6 @@ void generate_block_cyclic_distribution_matrix_A(
     MPI_File file;
     MPI_Status status;
 
-    /**
-     * Reading from file.
-     */
     int dims[2] = {N,K};
     int distribs[2] =  {MPI_DISTRIBUTE_CYCLIC, MPI_DISTRIBUTE_CYCLIC};
     int dargs[2] = {block_rows,block_cols};  // Arguments to pass to the MPI_Datatype constructor
@@ -227,13 +230,6 @@ void generate_block_cyclic_distribution_matrix_A(
     MPI_File_read_all(file, (*matrix_A), N_subarray * K_subarray, MPI_FLOAT, &status);
 
     MPI_File_close(&file);
-
-    /*printf("[Process %d] received : ", my_rank);
-    for (int i = 0; i < matrix_size; i++) {
-        printf("%f ", matrix[i]);
-    }
-    puts("\n");
-    fflush(stdout);*/
 }
 
 /**
@@ -243,7 +239,7 @@ void generate_block_cyclic_distribution_matrix_A(
  * @param matrix_rows Number of rows of the matrix to be distributed
  * @param matrix_cols Number of columns of the matrix to be distributed
  * @param block_rows Number of rows of the block
- * @param proc_rows Number of rows of the process grid
+ * @param process_gird_rows Number of rows of the process grid
  * @param my_rank ID of the current process (PID)
  * @param comm MPI private comunicator used in thi kernel of computation
 */
@@ -255,7 +251,7 @@ void generate_rows_distribution(
         int K_subarray,
         int M_subarray,
         int block_rows, 
-        int proc_cols, 
+        int process_gird_cols, 
         int my_rank, 
         MPI_Comm comm) {
 
@@ -263,14 +259,14 @@ void generate_rows_distribution(
     MPI_File file;
     MPI_Status status;
 
-    int rank_norm = my_rank % proc_cols;
+    int rank_norm = my_rank % process_gird_cols;
     int gsizes[2] = {K, M};
     int distribs[2] = {MPI_DISTRIBUTE_CYCLIC,MPI_DISTRIBUTE_CYCLIC};
     int dargs[2] = {block_rows, M_subarray}; // I want to have all the cols of the matrix, having only the correct rows 
-    int psizes[2] = {proc_cols,1}; // We want to divide the matrix only in one dimension, by rows
+    int psizes[2] = {process_gird_cols,1}; // We want to divide the matrix only in one dimension, by rows
     
 
-    MPI_Type_create_darray(proc_cols, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
+    MPI_Type_create_darray(process_gird_cols, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
     MPI_Type_commit(&filetype);
 
     MPI_File_open(comm, matrix_file_name, MPI_MODE_RDONLY, MPI_INFO_NULL, &file);
@@ -287,13 +283,6 @@ void generate_rows_distribution(
 
 
     MPI_File_close(&file);
-
-    /*printf("\n======\ni = %d\nBlock received : ", my_rank);
-    for (int i = 0; i < matrix_size; i++) {
-        printf("%f ", matrix[i]);
-    }
-    puts("\n");
-    fflush(stdout);*/
 }
 
 
@@ -305,8 +294,8 @@ void generate_rows_distribution_C(
         int N_subarray,
         int M_subarray,
         int block_rows, 
-        int proc_rows,
-        int proc_cols, 
+        int process_gird_rows,
+        int process_gird_cols, 
         int my_rank, 
         MPI_Comm comm) {
 
@@ -314,14 +303,20 @@ void generate_rows_distribution_C(
     MPI_File file;
     MPI_Status status;
 
-    int rank_norm = my_rank / proc_cols;
+    int rank_norm = my_rank / process_gird_cols;
+
     int gsizes[2] = {N, M};
     int distribs[2] = {MPI_DISTRIBUTE_CYCLIC,MPI_DISTRIBUTE_CYCLIC};
     int dargs[2] = {block_rows, N_subarray}; // I want to have all the cols of the matrix, having only the correct rows 
-    int psizes[2] = {proc_rows,1}; // We want to divide the matrix only in one dimension, by rows
+    int psizes[2] = {process_gird_rows,1}; // We want to divide the matrix only in one dimension, by rows
 
-    MPI_Type_create_darray(proc_rows, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
+    MPI_Type_create_darray(process_gird_rows, rank_norm, 2, gsizes, distribs, dargs, psizes, MPI_ORDER_C, MPI_FLOAT, &filetype);
     MPI_Type_commit(&filetype);
+
+                AUDIT{
+            puts("HERE");
+            fflush(stdout);
+        }
 
     MPI_File_open(comm, matrix_file_name, MPI_MODE_RDONLY, MPI_INFO_NULL, &file);
 
@@ -330,18 +325,10 @@ void generate_rows_distribution_C(
         MPI_Abort(comm, 1);
     }
 
-
     MPI_File_set_view(file, 2*sizeof(int), MPI_FLOAT, filetype, "native", MPI_INFO_NULL);
     
     MPI_File_read_all(file, (*matrix), N_subarray*M_subarray, MPI_FLOAT, &status);
 
 
     MPI_File_close(&file);
-
-    /*printf("\n======\ni = %d\nBlock received : ", my_rank);
-    for (int i = 0; i < matrix_size; i++) {
-        printf("%f ", matrix[i]);
-    }
-    puts("\n");
-    fflush(stdout);*/
 }

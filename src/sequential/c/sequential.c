@@ -149,7 +149,7 @@ int main(int argc, char *argv[]){
 	write_to_file_time = (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
 	total_time += write_to_file_time;
 
-	float partial = (float)(2.0*N*K*M)/computation_time;
+	float partial = (float)(2.0*N*K*M)/total_time;
 	gflops = (double)( partial / 1000000000);
 
 	write_sequential_computation_csv(N,K,M,read_from_file_time,computation_time,write_to_file_time,gflops);

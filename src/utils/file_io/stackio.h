@@ -17,5 +17,6 @@ void read_matrix_from_file(float *matrix,int N, int K, int M,int rows_expected, 
 void read_matrix_from_file_mpi(float *matrix,int N, int K, int M,int rows_expected, int cols_expected, char *matrix_name,bool is_square);
 void write_times_to_txt_file(char *matrix_name, int rows, int cols, double time);
 void write_sequential_computation_csv(int N,int K,int M,double read_time, double comptation_time,double write_time,double flops);
+void write_mpi_stats(int N, int K, int M,double total_time,float max_diff,float max_rel_diff,float gflops);
 
 #endif
