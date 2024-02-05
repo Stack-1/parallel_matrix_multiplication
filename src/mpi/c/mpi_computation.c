@@ -109,10 +109,7 @@ void compute_process_parallel_matrix_by_matrix_multiplication(
     
     /* Read C values from file to add them to the computation */
     generate_rows_distribution_C(matrix_C_file_name,&matrix_C_subarray_from_file, N, M, N_subarray , M_subarray, BLOCK_ROWS, process_grid_rows, process_grid_cols,my_rank,comm);
-        AUDIT{
-            puts("HERE");
-            fflush(stdout);
-        }
+
     MPI_Barrier(comm);
 
     if (my_rank % process_grid_cols == 0) {
